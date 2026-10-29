@@ -1,3 +1,4 @@
+package com.floatguard;
 
 public class Main {
     public static void main(String[] args) {

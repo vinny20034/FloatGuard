@@ -1,4 +1,4 @@
-
+package com.floatguard;
 public class EFloat extends FloatWallet {
 
     public EFloat(double balance) {

@@ -1,4 +1,4 @@
-
+package com.floatguard;
 public class FloatWallet {
     protected String walletName;
     protected double balance;
