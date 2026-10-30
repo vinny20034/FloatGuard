@@ -1,16 +1,16 @@
-package com.floatguard.model;
+package com.floatguard;
 
 import com.floatguard.exception.InsufficientFloatException;
 
 import java.time.Instant;
 
-public class CustomerWithdrawal implements Operation {
+public class CustomerDeposit implements Operation {
 
     private final String provider;
     private final double amount;
     private final Instant timestamp;
 
-    public CustomerWithdrawal(String provider, double amount, Instant timestamp) {
+    public CustomerDeposit(String provider, double amount, Instant timestamp) {
         if (provider == null || provider.isBlank()) {
             throw new IllegalArgumentException("Provider is required");
         }
@@ -22,7 +22,7 @@ public class CustomerWithdrawal implements Operation {
         this.timestamp = timestamp;
     }
 
-    public CustomerWithdrawal(String provider, double amount) {
+    public CustomerDeposit(String provider, double amount) {
         this(provider, amount, Instant.now());
     }
 
@@ -30,13 +30,13 @@ public class CustomerWithdrawal implements Operation {
     public void applyTo(Agent agent) throws InsufficientFloatException {
         CashFloat cash = agent.findCash();
         EFloat eFloat = agent.findEFloat(provider); 
-        eFloat.decrease(amount);                   
-        cash.increase(amount);
+        cash.decrease(amount);                      
+        eFloat.increase(amount);
     }
 
     @Override
     public String getType() {
-        return "WITHDRAWAL";
+        return "DEPOSIT";
     }
 
     @Override
@@ -56,11 +56,11 @@ public class CustomerWithdrawal implements Operation {
 
     @Override
     public double cashChange() {
-        return amount;
+        return -amount;
     }
 
     @Override
     public double eFloatChange() {
-        return -amount;
+        return amount;
     }
 }

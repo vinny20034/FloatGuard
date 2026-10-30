@@ -1,4 +1,4 @@
-package com.floatguard.model;
+package com.floatguard;
 
 import com.floatguard.exception.InsufficientFloatException;
 
