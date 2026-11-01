@@ -1,4 +1,5 @@
-package com. floatguard;
+package com.floatguard;
+
 public class CashFloat extends FloatWallet {
 
     public CashFloat(double balance) {
@@ -10,4 +11,3 @@ public class CashFloat extends FloatWallet {
         System.out.println("Cash Float Balance: K" + balance);
     }
 }
--

@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>FloatGuard</title>
+  <style>
+    :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+    header { padding:20px 24px; border-bottom:1px solid var(--line); }
+    header h1 { margin:0; font-size:20px; }
+    header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+    main { display:grid; grid-template-columns: 360px 1fr; gap:16px; padding:16px; align-items:start; }
+    @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+    section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; }
+    h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 12px; }
+    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
+    input, select { width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--line); background:#0b1220; color:var(--text); font-size:13px; }
+    button { margin-top:14px; width:100%; padding:9px; border:0; border-radius:6px; background:var(--accent); color:#04121f; font-weight:600; cursor:pointer; font-size:13px; }
+    button.secondary { background:#334155; color:var(--text); }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    #log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; white-space:pre-wrap; word-break:break-word; max-height:70vh; overflow:auto; }
+    .tag { display:inline-block; padding:1px 7px; border-radius:999px; font-size:11px; font-weight:700; }
+    .OK { background:rgba(34,197,94,.15); color:var(--ok); }
+    .WARNING { background:rgba(245,158,11,.15); color:var(--warn); }
+    .CRITICAL { background:rgba(239,68,68,.15); color:var(--bad); }
+    .hint { font-size:11px; color:var(--muted); margin-top:8px; line-height:1.5; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>FloatGuard</h1>
+  <p>Manual float tracking for mobile-money agents — cash float &amp; electronic float.</p>
+</header>
+
+<main>
+  <div>
+    <section>
+      <h2>1. Register agent</h2>
+      <label for="agentName">Name</label>
+      <input id="agentName" placeholder="Chanda Mobile Money"/>
+      <label for="agentLocation">Location</label>
+      <input id="agentLocation" placeholder="Lusaka, Kamwala"/>
+      <button onclick="registerAgent()">POST /agents</button>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>2. Create wallet</h2>
+      <label for="agentId">Agent ID</label>
+      <input id="agentId" placeholder="paste agent id"/>
+      <div class="row">
+        <div>
+          <label for="walletType">Type</label>
+          <select id="walletType"><option>CASH</option><option>EFLOAT</option></select>
+        </div>
+        <div>
+          <label for="openingBalance">Opening balance</label>
+          <input id="openingBalance" type="number" value="1000"/>
+        </div>
+      </div>
+      <button onclick="createWallet()">POST /agents/{id}/wallets</button>
+      <div class="hint" id="walletIds"></div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>3. Log operation</h2>
+      <label for="walletId">Wallet ID</label>
+      <input id="walletId" placeholder="paste wallet id"/>
+      <label for="amount">Amount</label>
+      <input id="amount" type="number" value="250"/>
+      <div class="row">
+        <button onclick="logOperation('deposit')">POST /deposit</button>
+        <button class="secondary" onclick="logOperation('withdraw')">POST /withdraw</button>
+      </div>
+    </section>
+
+    <section style="margin-top:16px">
+      <h2>4. Runway &amp; rebalance</h2>
+      <button onclick="getRunway()">GET /agents/{id}/runway</button>
+      <label for="rebalanceId" style="margin-top:12px">Rebalance ID</label>
+      <input id="rebalanceId" placeholder="paste rebalance id"/>
+      <button class="secondary" onclick="completeRebalance()">PUT /rebalance/{id}</button>
+      <div class="hint">Rebalance requests are raised automatically when a float drops below its threshold. The <b>rebalanceRequestId</b> is returned by POST /deposit and POST /withdraw — it is filled in below for you, then click the button to complete it.</div>
+    </section>
+  </div>
+
+  <section>
+    <h2>Response</h2>
+    <div id="log">Send a request to see the JSON response here.</div>
+  </section>
+</main>
+
+<script>
+  const log = (label, data) => {
+    document.getElementById('log').textContent =
+      `// ${label}\n` + JSON.stringify(data, null, 2);
+  };
+
+  async function call(method, path, body) {
+    const options = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) options.body = JSON.stringify(body);
+    const response = await fetch(path, options);
+    const text = await response.text();
+    let parsed;
+    try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
+    return { status: response.status, body: parsed };
+  }
+
+  async function registerAgent() {
+    const result = await call('POST', '/agents', {
+      name: document.getElementById('agentName').value,
+      location: document.getElementById('agentLocation').value
+    });
+    if (result.body && result.body.id) document.getElementById('agentId').value = result.body.id;
+    log(`POST /agents -> ${result.status}`, result.body);
+  }
+
+  async function createWallet() {
+    const agentId = document.getElementById('agentId').value.trim();
+    const opening = parseFloat(document.getElementById('openingBalance').value);
+    const result = await call('POST', `/agents/${encodeURIComponent(agentId)}/wallets`, {
+      type: document.getElementById('walletType').value,
+      openingBalance: isNaN(opening) ? 0 : opening
+    });
+    if (result.body && result.body.id) {
+      document.getElementById('walletId').value = result.body.id;
+      document.getElementById('walletIds').textContent = `${result.body.type} wallet: ${result.body.id}`;
+    }
+    log(`POST /agents/${agentId}/wallets -> ${result.status}`, result.body);
+  }
+
+  async function logOperation(kind) {
+    const result = await call('POST', `/${kind}`, {
+      walletId: document.getElementById('walletId').value.trim(),
+      amount: parseFloat(document.getElementById('amount').value)
+    });
+    // A withdrawal that drops the float below its threshold makes the API return a
+    // rebalanceRequestId; pre-fill it so it can be completed without copy/paste.
+    if (result.body && result.body.rebalanceRequestId) {
+      document.getElementById('rebalanceId').value = result.body.rebalanceRequestId;
+    }
+    log(`POST /${kind} -> ${result.status}`, result.body);
+  }
+
+  async function getRunway() {
+    const agentId = document.getElementById('agentId').value.trim();
+    const result = await call('GET', `/agents/${encodeURIComponent(agentId)}/runway`);
+    log(`GET /agents/${agentId}/runway -> ${result.status}`, result.body);
+  }
+
+  async function completeRebalance() {
+    const id = document.getElementById('rebalanceId').value.trim();
+    const result = await call('PUT', `/rebalance/${encodeURIComponent(id)}`);
+    log(`PUT /rebalance/${id} -> ${result.status}`, result.body);
+  }
+</script>
+</body>
+</html>
