@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="FloatGuard mobile money agent float management dashboard">
+  <title>FloatGuard | Agent Dashboard</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#" aria-label="FloatGuard home">
+        <span class="brand-mark">F</span>
+        <span>
+          <strong>FloatGuard</strong>
+          <small>AGENT WORKSPACE</small>
+        </span>
+      </a>
+
+      <div class="profile-card">
+        <div class="avatar">DA</div>
+        <div class="profile-copy">
+          <strong id="agentName">Demo Agent</strong>
+          <span>Agent ID: <b id="agentId">1</b></span>
+        </div>
+        <span class="online-dot" title="Demo session active"></span>
+      </div>
+
+      <p class="nav-heading">WORKSPACE</p>
+
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="#overview" class="nav-link active" data-section="overview">
+          <span class="nav-icon">▦</span> Overview
+        </a>
+
+        <a href="#transactions" class="nav-link" data-section="transactions">
+          <span class="nav-icon">↔</span> Transactions
+        </a>
+
+        <a href="#rebalance" class="nav-link" data-section="rebalance">
+          <span class="nav-icon">⇄</span> Rebalance
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="demo-note">
+          <span class="demo-pulse"></span>
+          <div>
+            <strong>Demo environment</strong>
+            <small>Sample data stored in this browser</small>
+          </div>
+        </div>
+
+        <button class="sidebar-reset" id="resetDemoBtn" type="button">
+          ↻ Reset demo data
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenuBtn" type="button" aria-label="Toggle menu">
+          ☰
+        </button>
+
+        <div>
+          <div class="eyebrow">FLOAT MANAGEMENT / DEMO</div>
+          <h1 id="pageTitle">Overview</h1>
+        </div>
+
+        <div class="topbar-right">
+          <span class="demo-chip"><span></span> DEMO MODE</span>
+          <div class="top-date" id="todayDate"></div>
+        </div>
+      </header>
+
+      <div id="message" class="message" role="status" aria-live="polite"></div>
+
+      <!-- OVERVIEW -->
+      <section class="dashboard-section" id="overview">
+
+        <div class="welcome-row">
+          <div>
+            <h2>Good day, <span id="welcomeName">Demo Agent</span></h2>
+            <p>Here is your float position and activity at a glance.</p>
+          </div>
+
+          <span class="live-label">
+            <span></span> Local demo session
+          </span>
+        </div>
+
+        <div class="balance-grid">
+
+          <article class="balance-card cash-card">
+            <div class="balance-top">
+              <span class="balance-icon cash-icon">K</span>
+              <span class="balance-label">CASH FLOAT</span>
+              <span class="balance-tag">Physical cash</span>
+            </div>
+
+            <p class="balance-value" id="cashBalance">K5,000.00</p>
+
+            <div class="balance-bottom">
+              <span>Available cash</span>
+              <span id="cashStatus" class="status available">Cash Available</span>
+            </div>
+          </article>
+
+          <article class="balance-card efloat-card">
+            <div class="balance-top">
+              <span class="balance-icon efloat-icon">↗</span>
+              <span class="balance-label">E-FLOAT</span>
+              <span class="balance-tag">Electronic value</span>
+            </div>
+
+            <p class="balance-value" id="eFloatBalance">K8,000.00</p>
+
+            <div class="balance-bottom">
+              <span>Available e-float</span>
+              <span id="eFloatStatus" class="status available">E-Float Available</span>
+            </div>
+          </article>
+
+          <article class="balance-card total-card">
+            <div class="balance-top">
+              <span class="balance-icon total-icon">Σ</span>
+              <span class="balance-label">TOTAL FLOAT</span>
+              <span class="balance-tag">Combined position</span>
+            </div>
+
+            <p class="balance-value" id="totalBalance">K13,000.00</p>
+
+            <div class="balance-bottom">
+              <span>Cash + e-float</span>
+              <span class="total-caption">Portfolio value</span>
+            </div>
+          </article>
+
+        </div>
+
+        <div id="floatWarning" class="warning-banner" style="display:none"></div>
+
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">QUICK ACTIONS</span>
+            <h2>Record a transaction</h2>
+            <p>Update your float after serving a customer.</p>
+          </div>
+        </div>
+
+        <div class="action-grid">
+
+          <article class="panel transaction-panel">
+            <div class="panel-heading">
+              <div class="panel-icon deposit-icon">↓</div>
+              <div>
+                <h3>Customer deposit</h3>
+                <p>Customer gives you cash and receives e-value.</p>
+              </div>
+            </div>
+
+            <form id="depositForm" class="form-stack">
+              <label for="depositAmount">Deposit amount (ZMW)</label>
+
+              <div class="amount-input">
+                <span>K</span>
+                <input id="depositAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+              </div>
+
+              <div class="movement-note">
+                <span>Cash</span>
+                <b class="positive">+ increases</b>
+                <span class="movement-arrow">·</span>
+                <span>E-float</span>
+                <b class="negative">− decreases</b>
+              </div>
+
+              <button class="primary-button" type="submit">
+                Record deposit <span>→</span>
+              </button>
+            </form>
+          </article>
+
+          <article class="panel transaction-panel">
+            <div class="panel-heading">
+              <div class="panel-icon withdraw-icon">↑</div>
+              <div>
+                <h3>Customer withdrawal</h3>
+                <p>You give the customer cash and receive e-value.</p>
+              </div>
+            </div>
+
+            <form id="withdrawalForm" class="form-stack">
+              <label for="withdrawAmount">Withdrawal amount (ZMW)</label>
+
+              <div class="amount-input">
+                <span>K</span>
+                <input id="withdrawAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+              </div>
+
+              <div class="movement-note">
+                <span>Cash</span>
+                <b class="negative">− decreases</b>
+                <span class="movement-arrow">·</span>
+                <span>E-float</span>
+                <b class="positive">+ increases</b>
+              </div>
+
+              <button class="secondary-button" type="submit">
+                Record withdrawal <span>→</span>
+              </button>
+            </form>
+          </article>
+
+        </div>
+
+        <div class="section-heading recent-heading">
+          <div>
+            <span class="section-kicker">LATEST ACTIVITY</span>
+            <h2>Recent transactions</h2>
+          </div>
+
+          <button class="text-button" type="button" data-go="transactions">
+            View all transactions →
+          </button>
+        </div>
+
+        <div class="panel table-panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>REFERENCE</th>
+                  <th>TRANSACTION</th>
+                  <th>AMOUNT</th>
+                  <th>DATE & TIME</th>
+                </tr>
+              </thead>
+
+              <tbody id="recentTransactions">
+                <tr>
+                  <td colspan="4" class="empty-cell">No transactions recorded yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- TRANSACTIONS -->
+      <section class="dashboard-section" id="transactions" hidden>
+
+        <div class="page-intro">
+          <div>
+            <span class="section-kicker">ACCOUNT ACTIVITY</span>
+            <h2>Transaction history</h2>
+            <p>Review deposits and withdrawals recorded in this demo session.</p>
+          </div>
+
+          <button class="outline-button" id="exportBtn" type="button">
+            ↓ Export CSV
+          </button>
+        </div>
+
+        <div class="stats-strip">
+          <div>
+            <span>Total transactions</span>
+            <strong id="transactionCount">0</strong>
+          </div>
+
+          <div>
+            <span>Total deposits</span>
+            <strong id="depositTotal">K0.00</strong>
+          </div>
+
+          <div>
+            <span>Total withdrawals</span>
+            <strong id="withdrawalTotal">K0.00</strong>
+          </div>
+        </div>
+
+        <div class="panel table-panel">
+
+          <div class="table-toolbar">
+            <div>
+              <h3>All transactions</h3>
+              <p>Your recorded activity, newest first.</p>
+            </div>
+
+            <input
+              id="historySearch"
+              class="search-input"
+              type="search"
+              placeholder="Search reference or type…"
+            >
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>REFERENCE</th>
+                  <th>TYPE</th>
+                  <th>AMOUNT</th>
+                  <th>CASH AFTER</th>
+                  <th>E-FLOAT AFTER</th>
+                  <th>DATE & TIME</th>
+                </tr>
+              </thead>
+
+              <tbody id="transactionHistory">
+                <tr>
+                  <td colspan="6" class="empty-cell">No transactions recorded yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+
+        <p class="footnote">
+          Demo history is saved in this browser only. It is not yet stored in the Java backend.
+        </p>
+
+      </section>
+
+      <!-- REBALANCE -->
+      <section class="dashboard-section" id="rebalance" hidden>
+
+        <div class="page-intro">
+          <div>
+            <span class="section-kicker">FLOAT SUPPORT</span>
+            <h2>Rebalance requests</h2>
+            <p>Request the type of float your business needs more of.</p>
+          </div>
+        </div>
+
+        <div class="rebalance-layout">
+
+          <article class="panel rebalance-form-panel">
+
+            <div class="panel-heading">
+              <div class="panel-icon rebalance-icon">⇄</div>
+              <div>
+                <h3>Create a request</h3>
+                <p>Choose the float you need and enter the amount.</p>
+              </div>
+            </div>
+
+            <form id="rebalanceForm" class="form-stack">
+
+              <label for="floatType">Float required</label>
+
+              <select id="floatType" required>
+                <option value="E_FLOAT">E-float — I need electronic value</option>
+                <option value="CASH">Cash — I need physical cash</option>
+              </select>
+
+              <label for="rebalanceAmount">Amount (ZMW)</label>
+
+              <div class="amount-input">
+                <span>K</span>
+                <input id="rebalanceAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+              </div>
+
+              <div class="info-note">
+                Your request will be saved as pending in this demo. Agent-to-agent matching and exchange will be added during backend integration.
+              </div>
+
+              <button class="primary-button" type="submit">
+                Submit rebalance request <span>→</span>
+              </button>
+
+            </form>
+          </article>
+
+          <article class="panel how-panel">
+            <span class="section-kicker">HOW IT WORKS</span>
+            <h3>Request the float you are short of</h3>
+
+            <div class="how-step">
+              <span>01</span>
+              <div>
+                <strong>Select the float</strong>
+                <p>Choose cash or e-float depending on what you need.</p>
+              </div>
+            </div>
+
+            <div class="how-step">
+              <span>02</span>
+              <div>
+                <strong>Enter an amount</strong>
+                <p>Specify how much float you want another agent to provide.</p>
+              </div>
+            </div>
+
+            <div class="how-step">
+              <span>03</span>
+              <div>
+                <strong>Track the request</strong>
+                <p>See whether your demo request is pending or marked completed.</p>
+              </div>
+            </div>
+          </article>
+
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">REQUEST LOG</span>
+            <h2>Your requests</h2>
+            <p>Requests created during this demo session.</p>
+          </div>
+        </div>
+
+        <div class="panel requests-panel" id="rebalanceRequests">
+          <p class="empty-cell">No rebalance requests yet.</p>
+        </div>
+
+        <p class="footnote">
+          Important: marking a request completed only changes its demo status. It does not transfer cash or e-float between agents.
+        </p>
+
+      </section>
+
+      <footer class="footer">
+        <span>© 2026 FloatGuard</span>
+        <span>Agent float management · Frontend demonstration</span>
+      </footer>
+
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
