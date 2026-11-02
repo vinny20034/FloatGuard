@@ -1,22 +1,30 @@
 /*
- * FLOATGUARD - DEMO FRONTEND
- * No backend connection is required while DEMO_MODE is true.
- * Demo data is saved in browser localStorage.
+ * FLOATGUARD - AGENT DASHBOARD
+ *
+ * Runs on agent.html behind the shared auth guard (auth.js). The bearer token
+ * identifies the agent, so the dashboard loads THAT agent's wallets rather than
+ * creating one. Endpoints used:
+ *   GET  /agents/{id}/runway      balances + warnings (id = signed-in agent)
+ *   GET  /agents/{id}/rebalances  floats vs threshold + the agent's requests
+ *   POST /agents/{id}/rebalances  raise a PENDING request for one float
+ *   POST /deposit                 log a deposit into ONE wallet
+ *   POST /withdraw                log a withdrawal from ONE wallet
+ *   PUT  /rebalance/{id}          mark a rebalance request COMPLETED
+ *
+ * Balances and rebalance status live in the backend (SQLite). There is no
+ * operation-history endpoint yet, so the transaction list is kept in this
+ * browser, keyed per agent.
  */
 
-const DEMO_MODE = false;
-const API_BASE_URL = "http://localhost:7000";
+const HISTORY_KEY = "floatguard_history_v1";
 
-const DEFAULT_AGENT = {
-  id: 1,
-  name: "Demo Agent",
-  cashBalance: 5000,
-  eFloatBalance: 8000
-};
-
-let agent = { ...DEFAULT_AGENT };
-let transactions = [];
-let rebalanceRequests = [];
+// Signed-in account (from auth.js) and the agent it owns.
+let user = null;
+// { agentId, agentName, location, wallets: { CASH: {...}, EFLOAT: {...} }, overallWarning, shortId }
+let session = null;
+// { threshold, wallets: [...], requests: [...] } loaded from the backend.
+let rebalanceData = { threshold: 0, wallets: [], requests: [] };
+let history = [];
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,7 +49,6 @@ function escapeHTML(value) {
 
 function showMessage(message, type = "success") {
   const box = $("message");
-
   if (!box) return;
 
   box.textContent = message;
@@ -49,125 +56,153 @@ function showMessage(message, type = "success") {
   box.style.display = "block";
 
   clearTimeout(showMessage.timer);
-
   showMessage.timer = setTimeout(() => {
     box.style.display = "none";
     box.className = "message";
-  }, 3500);
+  }, 4000);
 }
 
-function saveDemoData() {
-  if (!DEMO_MODE) return;
-
-  localStorage.setItem("floatguard_agent", JSON.stringify(agent));
-  localStorage.setItem("floatguard_transactions", JSON.stringify(transactions));
-  localStorage.setItem("floatguard_rebalances", JSON.stringify(rebalanceRequests));
+function walletLabel(type) {
+  return type === "EFLOAT" ? "E-float" : "Cash float";
 }
 
-function loadDemoData() {
-  if (!DEMO_MODE) return;
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value || "") : date.toLocaleString();
+}
 
+/**
+ * Display id for the signed-in agent: the initial of the account name followed
+ * by a stable number between 1 and 100 (e.g. "M42"). Derived from the account so
+ * the sidebar and the header chip always agree.
+ */
+function agentDisplayId(displayName, seed) {
+  const name = String(displayName || "").trim();
+  const initial = (name.charAt(0) || "A").toUpperCase();
+  const source = String(seed || name || "agent");
+
+  let hash = 0;
+  for (let i = 0; i < source.length; i++) {
+    hash = (hash * 31 + source.charCodeAt(i)) % 100000;
+  }
+  return initial + ((hash % 100) + 1);
+}
+
+/* ------------------------------------------------------------------ *
+ * API helper (authenticated via auth.js)
+ * ------------------------------------------------------------------ */
+
+function api(method, path, body) {
+  return Auth.api(method, path, body);
+}
+
+/* ------------------------------------------------------------------ *
+ * Per-agent browser persistence for the session's activity log
+ * ------------------------------------------------------------------ */
+
+function historyKey() {
+  return `${HISTORY_KEY}:${session?.agentId || "unknown"}`;
+}
+
+function saveHistory() {
+  localStorage.setItem(historyKey(), JSON.stringify(history));
+}
+
+function loadHistory() {
   try {
-    agent = JSON.parse(localStorage.getItem("floatguard_agent")) || {
-      ...DEFAULT_AGENT
-    };
-
-    transactions = JSON.parse(localStorage.getItem("floatguard_transactions")) || [];
-
-    rebalanceRequests = JSON.parse(localStorage.getItem("floatguard_rebalances")) || [];
-
-  } catch (error) {
-    resetDemoData(false);
+    return JSON.parse(localStorage.getItem(historyKey())) || [];
+  } catch {
+    return [];
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * Bootstrap
+ * ------------------------------------------------------------------ */
+
+async function refreshState() {
+  const res = await api("GET", `/agents/${encodeURIComponent(session.agentId)}/runway`);
+  if (!res.ok) return false;
+
+  const data = res.data;
+  session.agentName = data.agentName;
+  session.location = data.location;
+  session.overallWarning = data.overallWarning;
+
+  const wallets = {};
+  (data.wallets || []).forEach(w => { wallets[w.type] = w; });
+  session.wallets = wallets;
 
   updateDashboard();
+  return true;
 }
 
-function resetDemoData(showNotice = true) {
-  agent = { ...DEFAULT_AGENT };
-  transactions = [];
-  rebalanceRequests = [];
+async function bootstrap() {
+  user = Auth.guard("AGENT");
+  if (!user) return; // a redirect to the sign-in page was issued
 
-  saveDemoData();
-  updateDashboard();
-
-  if (showNotice) {
-    showMessage("Demo data has been reset.");
-  }
-}
-
-function dateLabel() {
-  return new Date().toLocaleString();
-}
-
-function reference() {
-  return "FG-" + Date.now().toString().slice(-8);
-}
-
-function amountFrom(id) {
-  const field = $(id);
-  const value = Number(field?.value);
-
-  if (
-    !Number.isFinite(value) ||
-    value <= 0 ||
-    Math.round(value * 100) !== value * 100
-  ) {
-    showMessage(
-      "Enter a valid amount with no more than two decimal places.",
-      "error"
-    );
-
-    return null;
+  if (!user.agentId) {
+    showMessage("This account is not linked to an agent. Contact an administrator.", "error");
+    return;
   }
 
-  return value;
+  session = { agentId: user.agentId, agentName: "", location: "", wallets: {}, overallWarning: "OK" };
+  history = loadHistory();
+  rebalanceLog = loadRebalances();
+
+  if ($("userName")) $("userName").textContent = user.username;
+
+  const ok = await refreshState();
+  if (!ok) showMessage("Could not load your float data. Please sign in again.", "error");
+}
+
+/* ------------------------------------------------------------------ *
+ * Dashboard rendering
+ * ------------------------------------------------------------------ */
+
+function warningStatus(id, warning, kind) {
+  const el = $(id);
+  if (!el) return;
+
+  const label = kind === "EFLOAT" ? "E-Float" : "Cash";
+
+  if (warning === "CRITICAL") {
+    el.textContent = `${label} Critical`;
+    el.className = "status low";
+  } else if (warning === "WARNING") {
+    el.textContent = `${label} Running Low`;
+    el.className = "status pending";
+  } else {
+    el.textContent = `${label} Available`;
+    el.className = "status available";
+  }
 }
 
 function updateDashboard() {
-  if ($("agentName")) $("agentName").textContent = agent.name;
-  if ($("welcomeName")) $("welcomeName").textContent = agent.name;
-  if ($("agentId")) $("agentId").textContent = agent.id;
+  if (!session) return;
 
-  if ($("cashBalance")) {
-    $("cashBalance").textContent = money(agent.cashBalance);
-  }
+  const cash = session.wallets.CASH || { balance: 0, warning: "OK" };
+  const efloat = session.wallets.EFLOAT || { balance: 0, warning: "OK" };
 
-  if ($("eFloatBalance")) {
-    $("eFloatBalance").textContent = money(agent.eFloatBalance);
-  }
+  if ($("agentName")) $("agentName").textContent = session.agentName || "Agent";
+  if ($("welcomeName")) $("welcomeName").textContent = session.agentName || "Agent";
+  if ($("agentId")) $("agentId").textContent = session.agentId || "—";
 
+  if ($("cashBalance")) $("cashBalance").textContent = money(cash.balance);
+  if ($("eFloatBalance")) $("eFloatBalance").textContent = money(efloat.balance);
   if ($("totalBalance")) {
-    $("totalBalance").textContent = money(
-      agent.cashBalance + agent.eFloatBalance
-    );
+    $("totalBalance").textContent = money(Number(cash.balance) + Number(efloat.balance));
   }
 
-  updateStatus(
-    "cashStatus",
-    agent.cashBalance,
-    "Cash Available",
-    "Low Cash"
-  );
-
-  updateStatus(
-    "eFloatStatus",
-    agent.eFloatBalance,
-    "E-Float Available",
-    "Low E-Float"
-  );
+  warningStatus("cashStatus", cash.warning, "CASH");
+  warningStatus("eFloatStatus", efloat.warning, "EFLOAT");
 
   const warning = $("floatWarning");
-
   if (warning) {
-    const low =
-      agent.cashBalance < 1000 ||
-      agent.eFloatBalance < 1000;
-
+    const low = session.overallWarning && session.overallWarning !== "OK";
     warning.style.display = low ? "block" : "none";
-
     warning.textContent =
-      "One of your float balances is running low. Consider creating a rebalance request.";
+      "A float is running low. A rebalance request has been raised automatically — open the Rebalance tab to review it.";
   }
 
   renderHistory();
@@ -176,108 +211,9 @@ function updateDashboard() {
   updateTransactionStats();
 }
 
-function updateStatus(id, value, normal, low) {
-  const el = $(id);
-
-  if (!el) return;
-
-  const isLow = value < 1000;
-
-  el.textContent = isLow ? low : normal;
-
-  el.className = `status ${isLow ? "low" : "available"}`;
-}
-
-function recordTransaction(type, amount) {
-
-  if (type === "deposit") {
-
-    // Customer hands cash to the agent; agent sends e-float.
-
-    if (agent.eFloatBalance < amount) {
-      showMessage(
-        "Insufficient e-float to complete this customer deposit.",
-        "error"
-      );
-
-      return false;
-    }
-
-    agent.cashBalance += amount;
-    agent.eFloatBalance -= amount;
-
-  } else if (type === "withdrawal") {
-
-    // Agent hands cash to the customer; agent receives e-float.
-
-    if (agent.cashBalance < amount) {
-      showMessage(
-        "Insufficient cash to complete this customer withdrawal.",
-        "error"
-      );
-
-      return false;
-    }
-
-    agent.cashBalance -= amount;
-    agent.eFloatBalance += amount;
-
-  } else {
-
-    showMessage("Unknown transaction type.", "error");
-
-    return false;
-  }
-
-  transactions.unshift({
-    reference: reference(),
-    type,
-    amount,
-    cashAfter: agent.cashBalance,
-    eFloatAfter: agent.eFloatBalance,
-    date: dateLabel(),
-    timestamp: Date.now()
-  });
-
-  saveDemoData();
-  updateDashboard();
-
-  showMessage(
-    `${type === "deposit" ? "Customer deposit" : "Customer withdrawal"} recorded successfully.`
-  );
-
-  return true;
-}
-
-function handleDeposit(event) {
-  event.preventDefault();
-
-  const amount = amountFrom("depositAmount");
-
-  if (amount === null) return;
-
-  if (recordTransaction("deposit", amount)) {
-    $("depositForm").reset();
-  }
-}
-
-function handleWithdrawal(event) {
-  event.preventDefault();
-
-  const amount = amountFrom("withdrawAmount");
-
-  if (amount === null) return;
-
-  if (recordTransaction("withdrawal", amount)) {
-    $("withdrawalForm").reset();
-  }
-}
-
 function transactionRow(t, compact = false) {
   const type =
-    t.type === "deposit"
-      ? "Customer deposit"
-      : "Customer withdrawal";
+    t.type === "deposit" ? "Customer deposit" : "Customer withdrawal";
 
   if (compact) {
     return `<tr>
@@ -290,216 +226,254 @@ function transactionRow(t, compact = false) {
 
   return `<tr>
     <td>${escapeHTML(t.reference)}</td>
-    <td><span class="type-pill ${t.type}">${type}</span></td>
+    <td><span class="type-pill ${t.type}">${t.type === "deposit" ? "Deposit" : "Withdrawal"}</span></td>
+    <td>${escapeHTML(walletLabel(t.walletType))}</td>
     <td>${money(t.amount)}</td>
-    <td>${money(t.cashAfter)}</td>
-    <td>${money(t.eFloatAfter)}</td>
     <td>${escapeHTML(t.date)}</td>
   </tr>`;
 }
 
-function renderHistory(list = transactions) {
+function renderHistory(list = history) {
   const body = $("transactionHistory");
-
   if (!body) return;
 
   body.innerHTML = list.length
     ? list.map(t => transactionRow(t)).join("")
-    : `<tr><td colspan="6" class="empty-cell">No transactions recorded yet.</td></tr>`;
+    : `<tr><td colspan="5" class="empty-cell">No transactions recorded yet.</td></tr>`;
 }
 
 function renderRecentTransactions() {
   const body = $("recentTransactions");
-
   if (!body) return;
 
-  const recent = transactions.slice(0, 5);
-
+  const recent = history.slice(0, 5);
   body.innerHTML = recent.length
     ? recent.map(t => transactionRow(t, true)).join("")
     : `<tr><td colspan="4" class="empty-cell">No transactions recorded yet.</td></tr>`;
 }
 
 function updateTransactionStats() {
-  if ($("transactionCount")) {
-    $("transactionCount").textContent = transactions.length;
-  }
+  if ($("transactionCount")) $("transactionCount").textContent = history.length;
 
-  const deposits = transactions
+  const deposits = history
     .filter(t => t.type === "deposit")
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
-  const withdrawals = transactions
+  const withdrawals = history
     .filter(t => t.type === "withdrawal")
-    .reduce((sum, t) => sum + t.amount, 0);
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
-  if ($("depositTotal")) {
-    $("depositTotal").textContent = money(deposits);
-  }
-
-  if ($("withdrawalTotal")) {
-    $("withdrawalTotal").textContent = money(withdrawals);
-  }
+  if ($("depositTotal")) $("depositTotal").textContent = money(deposits);
+  if ($("withdrawalTotal")) $("withdrawalTotal").textContent = money(withdrawals);
 }
 
 function searchTransactions() {
-  const query = ($("historySearch")?.value || "")
-    .trim()
-    .toLowerCase();
+  const query = ($("historySearch")?.value || "").trim().toLowerCase();
 
-  const filtered = transactions.filter(t =>
+  const filtered = history.filter(t =>
     t.reference.toLowerCase().includes(query) ||
     t.type.toLowerCase().includes(query) ||
+    walletLabel(t.walletType).toLowerCase().includes(query) ||
     t.date.toLowerCase().includes(query)
   );
 
   renderHistory(filtered);
 }
 
-function exportTransactions() {
-  if (!transactions.length) {
-    showMessage(
-      "There are no transactions to export yet.",
-      "error"
-    );
+/* ------------------------------------------------------------------ *
+ * Transactions
+ * ------------------------------------------------------------------ */
 
-    return;
+function amountFrom(id) {
+  const field = $(id);
+  const value = Number(field?.value);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    showMessage("Enter an amount greater than zero.", "error");
+    return null;
   }
 
-  const rows = [
-    [
-      "Reference",
-      "Type",
-      "Amount ZMW",
-      "Cash after ZMW",
-      "E-float after ZMW",
-      "Date"
-    ],
+  if (Math.round(value * 100) !== value * 100) {
+    showMessage("Enter an amount with no more than two decimal places.", "error");
+    return null;
+  }
 
-    ...transactions.map(t => [
-      t.reference,
-      t.type,
-      t.amount,
-      t.cashAfter,
-      t.eFloatAfter,
-      t.date
-    ])
-  ];
-
-  const csv = rows
-    .map(row =>
-      row.map(v =>
-        `"${String(v).replace(/"/g, '""')}"`
-      ).join(",")
-    )
-    .join("\r\n");
-
-  const blob = new Blob([csv], {
-    type: "text/csv;charset=utf-8;"
-  });
-
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-
-  a.href = url;
-  a.download = "FloatGuard_Transaction_History.csv";
-
-  document.body.appendChild(a);
-
-  a.click();
-  a.remove();
-
-  URL.revokeObjectURL(url);
-
-  showMessage("Transaction history exported.");
+  return value;
 }
 
-function createRebalanceRequest(event) {
-  event.preventDefault();
+async function recordTransaction(kind, amount, walletType) {
+  const wallet = session?.wallets?.[walletType];
+  if (!wallet) {
+    showMessage("That wallet is not available.", "error");
+    return false;
+  }
 
-  const amount = amountFrom("rebalanceAmount");
+  const path = kind === "deposit" ? "/deposit" : "/withdraw";
+  const res = await api("POST", path, { walletId: wallet.id, amount });
 
-  if (amount === null) return;
+  if (!res.ok) {
+    showMessage(res.message, "error");
+    return false;
+  }
 
-  const floatType = $("floatType").value;
+  const data = res.data;
 
-  rebalanceRequests.unshift({
-    id: Date.now(),
-    floatType,
-    amount,
-    status: "PENDING",
-    date: dateLabel()
+  history.unshift({
+    reference: "FG-" + String(data.id).replace(/-/g, "").slice(0, 8).toUpperCase(),
+    type: kind,
+    walletType,
+    amount: data.amount,
+    balanceAfter: data.balanceAfter,
+    date: new Date(data.timestamp).toLocaleString()
   });
+  saveHistory();
 
-  saveDemoData();
-  updateDashboard();
+  if (data.rebalanceRequestId) {
+    addRebalance(data.rebalanceRequestId, walletType);
+  }
 
-  $("rebalanceForm").reset();
+  await refreshState();
 
   showMessage(
-    "Rebalance request saved as pending in demo mode."
+    `${kind === "deposit" ? "Deposit" : "Withdrawal"} of ${money(amount)} recorded on the ${walletLabel(walletType)}.`
   );
+
+  return true;
+}
+
+async function handleDeposit(event) {
+  event.preventDefault();
+
+  const amount = amountFrom("depositAmount");
+  if (amount === null) return;
+
+  const walletType = $("depositFloatType").value;
+  if (await recordTransaction("deposit", amount, walletType)) {
+    $("depositForm").reset();
+  }
+}
+
+async function handleWithdrawal(event) {
+  event.preventDefault();
+
+  const amount = amountFrom("withdrawAmount");
+  if (amount === null) return;
+
+  const walletType = $("withdrawFloatType").value;
+  if (await recordTransaction("withdrawal", amount, walletType)) {
+    $("withdrawalForm").reset();
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Rebalance log
+ * ------------------------------------------------------------------ */
+
+function addRebalance(id, walletType) {
+  if (rebalanceLog.some(r => r.id === id)) return;
+
+  rebalanceLog.unshift({
+    id,
+    walletType,
+    status: "PENDING",
+    date: new Date().toLocaleString()
+  });
+
+  saveRebalances();
 }
 
 function renderRebalanceRequests() {
   const list = $("rebalanceRequests");
-
   if (!list) return;
 
-  if (!rebalanceRequests.length) {
-    list.innerHTML =
-      `<p class="empty-cell">No rebalance requests yet.</p>`;
-
+  if (!rebalanceLog.length) {
+    list.innerHTML = `<p class="empty-cell">No rebalance requests yet.</p>`;
     return;
   }
 
-  list.innerHTML = rebalanceRequests.map(request => `
+  list.innerHTML = rebalanceLog.map(request => `
     <div class="rebalance-item">
       <div>
-        <strong>${request.floatType === "E_FLOAT" ? "E-float requested" : "Cash requested"}</strong>
-        <p>Amount: ${money(request.amount)}</p>
-        <small>${escapeHTML(request.date)}</small>
+        <strong>${request.walletType === "EFLOAT" ? "E-float" : "Cash"} rebalance</strong>
+        <p>Request ${escapeHTML(String(request.id).slice(0, 8))} · ${escapeHTML(request.date)}</p>
       </div>
 
       <span class="status ${request.status === "PENDING" ? "pending" : "completed"}">
         ${escapeHTML(request.status)}
       </span>
 
-      ${request.status === "PENDING" ? `<button type="button" data-complete="${request.id}">Mark completed</button>` : ""}
+      ${request.status === "PENDING"
+        ? `<button type="button" data-complete="${escapeHTML(String(request.id))}">Mark completed</button>`
+        : ""}
     </div>
   `).join("");
 }
 
-function completeRebalance(id) {
-  const request = rebalanceRequests.find(
-    r => r.id === Number(id)
-  );
-
+async function completeRebalance(id) {
+  const request = rebalanceLog.find(r => r.id === id);
   if (!request) return;
 
-  request.status = "COMPLETED";
+  const res = await api("PUT", `/rebalance/${encodeURIComponent(id)}`);
 
-  saveDemoData();
-  updateDashboard();
+  if (!res.ok) {
+    showMessage(res.message, "error");
+    return;
+  }
 
-  showMessage(
-    "Demo request marked as completed. No float was transferred."
-  );
+  request.status = res.data.status || "COMPLETED";
+  saveRebalances();
+  renderRebalanceRequests();
+
+  showMessage("Rebalance request marked as completed in the database.");
+}
+
+/* ------------------------------------------------------------------ *
+ * Export + navigation
+ * ------------------------------------------------------------------ */
+
+function exportTransactions() {
+  if (!history.length) {
+    showMessage("There are no transactions to export yet.", "error");
+    return;
+  }
+
+  const rows = [
+    ["Reference", "Type", "Float", "Amount ZMW", "Balance after ZMW", "Date"],
+    ...history.map(t => [
+      t.reference,
+      t.type,
+      walletLabel(t.walletType),
+      t.amount,
+      t.balanceAfter,
+      t.date
+    ])
+  ];
+
+  const csv = rows
+    .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","))
+    .join("\r\n");
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "FloatGuard_Transaction_History.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+
+  showMessage("Transaction history exported.");
 }
 
 function navigate(sectionId) {
   document.querySelectorAll(".dashboard-section")
-    .forEach(section => {
-      section.hidden = section.id !== sectionId;
-    });
+    .forEach(section => { section.hidden = section.id !== sectionId; });
 
   document.querySelectorAll(".nav-link")
     .forEach(link => {
-      link.classList.toggle(
-        "active",
-        link.dataset.section === sectionId
-      );
+      link.classList.toggle("active", link.dataset.section === sectionId);
     });
 
   const titles = {
@@ -509,18 +483,17 @@ function navigate(sectionId) {
   };
 
   if ($("pageTitle")) {
-    $("pageTitle").textContent =
-      titles[sectionId] || "Overview";
+    $("pageTitle").textContent = titles[sectionId] || "Overview";
   }
 
-  document.querySelectorAll(".sidebar")
-    .forEach(sidebar => sidebar.classList.remove("open"));
+  document.querySelectorAll(".sidebar").forEach(sidebar => sidebar.classList.remove("open"));
 
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
+
+/* ------------------------------------------------------------------ *
+ * Wire up
+ * ------------------------------------------------------------------ */
 
 document.addEventListener("DOMContentLoaded", () => {
 
@@ -534,58 +507,24 @@ document.addEventListener("DOMContentLoaded", () => {
       });
   }
 
-  loadDemoData();
+  $("depositForm")?.addEventListener("submit", handleDeposit);
+  $("withdrawalForm")?.addEventListener("submit", handleWithdrawal);
 
-  $("depositForm")?.addEventListener(
-    "submit",
-    handleDeposit
-  );
+  $("historySearch")?.addEventListener("input", searchTransactions);
+  $("exportBtn")?.addEventListener("click", exportTransactions);
 
-  $("withdrawalForm")?.addEventListener(
-    "submit",
-    handleWithdrawal
-  );
+  $("signOutBtn")?.addEventListener("click", () => Auth.logout());
 
-  $("rebalanceForm")?.addEventListener(
-    "submit",
-    createRebalanceRequest
-  );
-
-  $("historySearch")?.addEventListener(
-    "input",
-    searchTransactions
-  );
-
-  $("exportBtn")?.addEventListener(
-    "click",
-    exportTransactions
-  );
-
-  $("resetDemoBtn")?.addEventListener("click", () => {
-    if (
-      confirm(
-        "Reset all demo balances, transactions and rebalance requests?"
-      )
-    ) {
-      resetDemoData();
-    }
+  document.querySelectorAll(".nav-link").forEach(link => {
+    link.addEventListener("click", event => {
+      event.preventDefault();
+      navigate(link.dataset.section);
+    });
   });
 
-  document.querySelectorAll(".nav-link")
-    .forEach(link => {
-      link.addEventListener("click", event => {
-        event.preventDefault();
-
-        navigate(link.dataset.section);
-      });
-    });
-
-  document.querySelectorAll("[data-go]")
-    .forEach(button => {
-      button.addEventListener("click", () => {
-        navigate(button.dataset.go);
-      });
-    });
+  document.querySelectorAll("[data-go]").forEach(button => {
+    button.addEventListener("click", () => navigate(button.dataset.go));
+  });
 
   $("mobileMenuBtn")?.addEventListener("click", () => {
     $("sidebar")?.classList.toggle("open");
@@ -593,20 +532,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("rebalanceRequests")?.addEventListener("click", event => {
     const button = event.target.closest("[data-complete]");
-
-    if (button) {
-      completeRebalance(button.dataset.complete);
-    }
+    if (button) completeRebalance(button.dataset.complete);
   });
 
+  bootstrap();
 });
-
-/*
- * BACKEND INTEGRATION NOTES:
- * - Keep DEMO_MODE = true for the presentation.
- * - When Member 4 confirms the final endpoint paths and JSON response fields,
- *   connect the forms and data loaders to those exact API contracts.
- * - Do not assume the demo's localStorage is a secure or shared database.
- * - Rebalance requests in this demo are local only: no agent broadcast,
- *   matching, acceptance workflow, or actual cash/e-float exchange.
- */

@@ -8,6 +8,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -47,6 +49,27 @@ public class RebalanceDao {
                     return Optional.empty();
                 }
                 return Optional.of(mapRow(resultSet));
+            }
+        }
+    }
+
+    /**
+     * Every request raised against any wallet owned by the agent, newest first.
+     * The table has no agent column, so the ownership is resolved through a join
+     * on {@code wallets}.
+     */
+    public List<RebalanceRequest> listByAgentId(Connection connection, String agentId) throws SQLException {
+        String sql = "SELECT r.id, r.wallet_id, r.status, r.created_at, r.completed_at "
+                + "FROM rebalance_requests r JOIN wallets w ON w.id = r.wallet_id "
+                + "WHERE w.agent_id = ? ORDER BY r.created_at DESC";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, agentId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<RebalanceRequest> requests = new ArrayList<>();
+                while (resultSet.next()) {
+                    requests.add(mapRow(resultSet));
+                }
+                return requests;
             }
         }
     }

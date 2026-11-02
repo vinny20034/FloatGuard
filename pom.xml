@@ -51,11 +51,41 @@
             <artifactId>slf4j-simple</artifactId>
             <version>${slf4j.version}</version>
         </dependency>
+
+        <!-- Password hashing (bcrypt) for user accounts. -->
+        <dependency>
+            <groupId>org.mindrot</groupId>
+            <artifactId>jbcrypt</artifactId>
+            <version>0.4</version>
+        </dependency>
     </dependencies>
 
     <build>
         <!-- Produces target/floatguard.jar instead of the default name. -->
         <finalName>floatguard</finalName>
+
+        <!-- The frontend lives at the project root. Copy it into the jar under
+             /public, the classpath static directory served at "/". -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${project.basedir}</directory>
+                <targetPath>public</targetPath>
+                <includes>
+                    <include>index.html</include>
+                    <include>agent.html</include>
+                    <include>admin.html</include>
+                    <include>styles.css</include>
+                    <include>auth.js</include>
+                    <include>login.js</include>
+                    <include>app.js</include>
+                    <include>admin.js</include>
+                </includes>
+            </resource>
+        </resources>
+
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

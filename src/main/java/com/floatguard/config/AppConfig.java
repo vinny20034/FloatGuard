@@ -9,28 +9,33 @@ import java.nio.file.Paths;
  * so the app can be started with zero setup:
  *
  * <pre>
- *   PORT              HTTP port              (default 7000)
- *   FLOATGUARD_DB_URL JDBC url               (default jdbc:sqlite:data/floatguard.db)
+ *   PORT                        HTTP port              (default 7000)
+ *   FLOATGUARD_DB_URL           JDBC url               (default jdbc:sqlite:data/floatguard.db)
+ *   FLOATGUARD_ADMIN_INVITE_CODE admin registration code (default FLOATGUARD-ADMIN)
  * </pre>
  */
 public final class AppConfig {
 
     private static final String DEFAULT_PORT = "7000";
     private static final String DEFAULT_DB_URL = "jdbc:sqlite:data/floatguard.db";
+    private static final String DEFAULT_ADMIN_INVITE_CODE = "FLOATGUARD-ADMIN";
     private static final String SQLITE_PREFIX = "jdbc:sqlite:";
 
     private final int port;
     private final String jdbcUrl;
+    private final String adminInviteCode;
 
-    private AppConfig(int port, String jdbcUrl) {
+    private AppConfig(int port, String jdbcUrl, String adminInviteCode) {
         this.port = port;
         this.jdbcUrl = jdbcUrl;
+        this.adminInviteCode = adminInviteCode;
     }
 
     public static AppConfig fromEnvironment() {
         return new AppConfig(
                 parsePort(System.getenv().getOrDefault("PORT", DEFAULT_PORT)),
-                System.getenv().getOrDefault("FLOATGUARD_DB_URL", DEFAULT_DB_URL));
+                System.getenv().getOrDefault("FLOATGUARD_DB_URL", DEFAULT_DB_URL),
+                System.getenv().getOrDefault("FLOATGUARD_ADMIN_INVITE_CODE", DEFAULT_ADMIN_INVITE_CODE));
     }
 
     public int port() {
@@ -39,6 +44,11 @@ public final class AppConfig {
 
     public String jdbcUrl() {
         return jdbcUrl;
+    }
+
+    /** Code required to create an ADMIN account through self-registration. */
+    public String adminInviteCode() {
+        return adminInviteCode;
     }
 
     /**

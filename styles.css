@@ -75,3 +75,51 @@ h1{font:800 23px Manrope;margin:0;letter-spacing:-.7px}
 .type-pill{display:inline-block;border-radius:20px;padding:5px 8px;font-size:9px;font-weight:700}
 .type-pill.deposit{background:#e9f7f1;color:#16835f}
 .type-pill.withdrawal{background:#fff0ed;color:#c05249}
+
+/* ---------------- Auth page (index.html) ---------------- */
+.auth-shell{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);min-height:100vh}
+.auth-aside{background:var(--navy);color:#fff;padding:37px 42px;display:flex;flex-direction:column;gap:30px}
+.auth-aside .brand{padding:0}
+.auth-pitch h1{font:800 30px Manrope;letter-spacing:-1px;margin:0 0 12px;color:#fff}
+.auth-pitch p{color:#a8b7cb;font-size:13px;line-height:1.7;max-width:430px}
+.auth-points{list-style:none;margin:auto 0 0;padding:0;display:grid;gap:12px}
+.auth-points li{display:flex;align-items:center;gap:12px;color:#c6d2e2;font-size:12px;border-top:1px solid #253a56;padding-top:12px}
+.auth-points span{font:800 11px Manrope;color:#8fb0ff;background:#20344f;border-radius:7px;padding:5px 8px}
+.auth-main{display:grid;place-items:center;padding:40px 20px}
+.auth-card{width:100%;max-width:420px;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:26px 26px 28px}
+.auth-tabs{display:grid;grid-template-columns:1fr 1fr;background:#f2f5fa;border-radius:10px;padding:4px;margin-bottom:20px;gap:4px}
+.auth-tab{border:0;background:transparent;border-radius:8px;padding:10px;font-size:12px;font-weight:700;color:#7c8798}
+.auth-tab.active{background:#fff;color:#2c58b8;box-shadow:0 2px 8px rgba(27,46,77,.09)}
+.auth-form{display:grid;gap:9px}
+.auth-form h2{font:800 19px Manrope;margin:0;letter-spacing:-.4px}
+.auth-sub{font-size:11px;color:var(--muted);margin:0 0 8px}
+.auth-form label{font-size:10px;font-weight:700;color:#56647a;margin-top:3px}
+.auth-form input,.auth-form select{height:43px;border:1px solid #dfe5ed;border-radius:8px;padding:0 12px;background:#fff;color:var(--ink);outline:0;width:100%}
+.auth-form input:focus,.auth-form select:focus{border-color:#7395ef;box-shadow:0 0 0 3px #edf2ff}
+.auth-form .primary-button{margin-top:12px}
+#agentFields,#adminFields{display:grid;gap:9px}
+
+/* ---------------- Admin console (admin.html) ---------------- */
+.admin-avatar{background:#e5f7f0;color:#15966b}
+.outline-button.compact{height:34px;font-size:10px;padding:0 12px;gap:8px}
+.stats-strip.four{grid-template-columns:repeat(4,1fr)}
+.assign-button{border:1px solid #d6e2f7;background:#f4f8ff;color:#3565c8;border-radius:7px;padding:7px 11px;font-size:9px;font-weight:700;white-space:nowrap}
+.assign-button:hover{background:#e9f1ff}
+[data-action]{text-align:right}
+.modal-overlay{position:fixed;inset:0;background:rgba(19,35,58,.45);display:grid;place-items:center;padding:20px;z-index:50}
+.modal-card{width:100%;max-width:400px;background:#fff;border-radius:15px;box-shadow:0 24px 60px rgba(19,35,58,.3);padding:22px}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px}
+.modal-head h3{font:800 16px Manrope;margin:6px 0 3px}
+.modal-head p{font-size:11px;color:var(--muted);margin:0}
+.modal-close{border:0;background:#f2f5fa;color:#68748a;width:30px;height:30px;border-radius:8px;font-size:18px;line-height:1}
+.modal-close:hover{background:#e7ecf4}
+.demo-note em{font-style:normal;color:#fff}
+
+/* ---------------- Header account chip ---------------- */
+.account-chip{display:flex;align-items:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 12px;box-shadow:var(--shadow);max-width:min(48vw,330px)}
+.account-text{display:flex;flex-direction:column;line-height:1.3;min-width:0}
+.account-text strong{font-size:10px;color:var(--ink)}
+.account-text span{font-size:9px;color:var(--muted);word-break:break-all}
+.account-text b{color:#3565c8;font-weight:700}
+
+@media(max-width:800px){.auth-shell{grid-template-columns:1fr}.auth-aside{padding:26px 22px;gap:20px}.auth-points{margin-top:18px}.stats-strip.four{grid-template-columns:1fr 1fr}}

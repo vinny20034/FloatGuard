@@ -56,11 +56,32 @@ public final class SchemaInitializer {
                 FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE CASCADE
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id            TEXT PRIMARY KEY,
+                username      TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role          TEXT NOT NULL CHECK (role IN ('ADMIN', 'AGENT')),
+                agent_id      TEXT,
+                created_at    TEXT NOT NULL,
+                FOREIGN KEY (agent_id) REFERENCES agents (id) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                token      TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """,
             // Indexes: lookups are almost always "by agent" or "by wallet".
             "CREATE INDEX IF NOT EXISTS idx_wallets_agent ON wallets (agent_id)",
             "CREATE INDEX IF NOT EXISTS idx_operations_wallet ON operations (wallet_id)",
             "CREATE INDEX IF NOT EXISTS idx_operations_wallet_time ON operations (wallet_id, occurred_at)",
-            "CREATE INDEX IF NOT EXISTS idx_rebalance_wallet ON rebalance_requests (wallet_id)"
+            "CREATE INDEX IF NOT EXISTS idx_rebalance_wallet ON rebalance_requests (wallet_id)",
+            "CREATE INDEX IF NOT EXISTS idx_users_agent ON users (agent_id)",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)"
     };
 
     private SchemaInitializer() {
