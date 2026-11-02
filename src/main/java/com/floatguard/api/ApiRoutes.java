@@ -1,9 +1,12 @@
 package com.floatguard.api;
 
+import com.floatguard.api.routes.AdminRoutes;
 import com.floatguard.api.routes.AgentRoutes;
+import com.floatguard.api.routes.AuthRoutes;
 import com.floatguard.api.routes.OperationRoutes;
 import com.floatguard.api.routes.RebalanceRoutes;
 import com.floatguard.api.routes.WalletRoutes;
+import com.floatguard.service.AuthService;
 import com.floatguard.service.FloatGuardService;
 import io.javalin.Javalin;
 
@@ -13,11 +16,16 @@ public final class ApiRoutes {
     private ApiRoutes() {
     }
 
-    public static void register(Javalin app, FloatGuardService service) {
+    public static void register(Javalin app, FloatGuardService service, AuthService authService) {
         // Exception -> HTTP mapping must be registered before the routes so that
         // failures raised inside the handlers are translated consistently.
         ErrorMapper.register(app);
 
+        // Authentication / role guard runs before any handler on a protected path.
+        AuthMiddleware.register(app, authService);
+
+        AuthRoutes.register(app, authService);
+        AdminRoutes.register(app, service);
         AgentRoutes.register(app, service);
         WalletRoutes.register(app, service);
         OperationRoutes.register(app, service);

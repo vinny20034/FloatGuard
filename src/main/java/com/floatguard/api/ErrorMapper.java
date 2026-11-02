@@ -1,7 +1,9 @@
 package com.floatguard.api;
 
 import com.floatguard.error.ConflictException;
+import com.floatguard.error.ForbiddenException;
 import com.floatguard.error.NotFoundException;
+import com.floatguard.error.UnauthorizedException;
 import com.floatguard.error.ValidationException;
 import com.floatguard.model.integration.InsufficientFloatException;
 import io.javalin.Javalin;
@@ -19,6 +21,8 @@ import java.util.Map;
  * <ul>
  *   <li>ValidationException        -> 400 Bad Request</li>
  *   <li>IllegalArgumentException   -> 400 Bad Request (defensive; guards domain constructors)</li>
+ *   <li>UnauthorizedException      -> 401 Unauthorized (missing/unknown/expired token)</li>
+ *   <li>ForbiddenException         -> 403 Forbidden (wrong role or not your account)</li>
  *   <li>NotFoundException          -> 404 Not Found</li>
  *   <li>ConflictException          -> 409 Conflict</li>
  *   <li>InsufficientFloatException -> 409 Conflict (domain rule)</li>
@@ -40,6 +44,12 @@ public final class ErrorMapper {
         // IllegalArgumentException - treat that as bad input, not a server fault.
         app.exception(IllegalArgumentException.class, (exception, ctx) ->
                 Responses.error(ctx, 400, "INVALID_ARGUMENT", exception.getMessage(), Map.of()));
+
+        app.exception(UnauthorizedException.class, (exception, ctx) ->
+                Responses.error(ctx, 401, "UNAUTHORIZED", exception.getMessage(), Map.of()));
+
+        app.exception(ForbiddenException.class, (exception, ctx) ->
+                Responses.error(ctx, 403, "FORBIDDEN", exception.getMessage(), Map.of()));
 
         app.exception(NotFoundException.class, (exception, ctx) ->
                 Responses.error(ctx, 404, "NOT_FOUND", exception.getMessage(), Map.of()));

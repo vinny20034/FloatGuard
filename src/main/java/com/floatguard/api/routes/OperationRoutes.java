@@ -1,9 +1,13 @@
 package com.floatguard.api.routes;
 
+import com.floatguard.api.AuthMiddleware;
 import com.floatguard.api.Responses;
 import com.floatguard.api.Validation;
 import com.floatguard.api.dto.OperationRequest;
 import com.floatguard.api.dto.OperationResponse;
+import com.floatguard.error.ForbiddenException;
+import com.floatguard.model.auth.Role;
+import com.floatguard.model.auth.User;
 import com.floatguard.model.integration.CustomerDeposit;
 import com.floatguard.model.integration.CustomerWithdrawal;
 import com.floatguard.model.integration.Operation;
@@ -46,6 +50,8 @@ public final class OperationRoutes {
         String walletId = request.walletId().trim();
         Instant timestamp = Instant.now();
 
+        requireWalletAccess(ctx, service, walletId);
+
         // Polymorphism: the concrete Operation decides the sign of the balance change.
         Operation operation = deposit
                 ? new CustomerDeposit(request.amount(), timestamp)
@@ -66,5 +72,21 @@ public final class OperationRoutes {
                 balanceBefore,
                 operation.getTimestamp().toString(),
                 entry.rebalanceRequestId()));
+    }
+
+    /**
+     * An agent may only touch its own wallets; an ADMIN may touch any. A missing
+     * wallet is left for the service to report as a 404.
+     */
+    private static void requireWalletAccess(Context ctx, FloatGuardService service, String walletId) {
+        User user = AuthMiddleware.currentUser(ctx);
+        if (user == null || user.getRole() == Role.ADMIN) {
+            return;
+        }
+        service.findWalletOwner(walletId)
+                .filter(owner -> !owner.equals(user.getAgentId()))
+                .ifPresent(owner -> {
+                    throw new ForbiddenException("You can only update your own wallets.");
+                });
     }
 }

@@ -7,7 +7,10 @@ import com.floatguard.persistence.SchemaInitializer;
 import com.floatguard.persistence.dao.AgentDao;
 import com.floatguard.persistence.dao.OperationDao;
 import com.floatguard.persistence.dao.RebalanceDao;
+import com.floatguard.persistence.dao.SessionDao;
+import com.floatguard.persistence.dao.UserDao;
 import com.floatguard.persistence.dao.WalletDao;
+import com.floatguard.service.AuthService;
 import com.floatguard.service.FloatGuardService;
 import io.javalin.Javalin;
 import io.javalin.http.staticfiles.Location;
@@ -44,14 +47,26 @@ public final class Main {
         log.info("Database ready at {}", config.jdbcUrl());
 
         // 2. Service layer: DAOs are stateless, so they are plain instances.
+        AgentDao agentDao = new AgentDao();
+        WalletDao walletDao = new WalletDao();
+
         FloatGuardService service = new FloatGuardService(
                 database,
-                new AgentDao(),
-                new WalletDao(),
+                agentDao,
+                walletDao,
                 new OperationDao(),
                 new RebalanceDao());
 
-        // 3. REST server + static files.
+        // 3. Authentication: accounts, opaque bearer tokens, admin invite code.
+        AuthService authService = new AuthService(
+                database,
+                new UserDao(),
+                new SessionDao(),
+                agentDao,
+                walletDao,
+                config.adminInviteCode());
+
+        // 4. REST server + static files.
         Javalin app = Javalin.create(javalinConfig -> {
             javalinConfig.showJavalinBanner = false;
             // Serves the single-page UI from src/main/resources/public at "/".
@@ -62,11 +77,11 @@ public final class Main {
             });
         });
 
-        ApiRoutes.register(app, service);
+        ApiRoutes.register(app, service, authService);
         app.start(config.port());
         log.info("FloatGuard listening on http://localhost:{}", config.port());
 
-        // 4. Graceful shutdown: stop accepting requests and let in-flight ones finish.
+        // 5. Graceful shutdown: stop accepting requests and let in-flight ones finish.
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down FloatGuard...");
             app.stop();

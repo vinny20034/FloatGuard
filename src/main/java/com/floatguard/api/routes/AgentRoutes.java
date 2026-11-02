@@ -4,9 +4,14 @@ import com.floatguard.api.Responses;
 import com.floatguard.api.Validation;
 import com.floatguard.api.dto.AgentResponse;
 import com.floatguard.api.dto.CreateAgentRequest;
+import com.floatguard.api.dto.CreateRebalanceRequest;
+import com.floatguard.api.dto.RebalanceItemResponse;
+import com.floatguard.api.dto.RebalanceOverviewResponse;
+import com.floatguard.api.dto.RebalanceWalletResponse;
 import com.floatguard.api.dto.RunwayResponse;
 import com.floatguard.api.dto.WalletRunwayResponse;
 import com.floatguard.model.integration.Agent;
+import com.floatguard.model.integration.WalletType;
 import com.floatguard.service.FloatGuardService;
 import com.floatguard.service.ServiceResults;
 import com.floatguard.util.Json;
@@ -20,8 +25,10 @@ import java.util.Map;
 
 /**
  * Routes for the agent resource:
- *   POST /agents             - register an agent
- *   GET  /agents/{id}/runway - balances + runway estimates + warning
+ *   POST /agents                - register an agent
+ *   GET  /agents/{id}/runway    - balances + runway estimates + warning
+ *   GET  /agents/{id}/rebalances - floats vs threshold + the agent's requests
+ *   POST /agents/{id}/rebalances - raise a PENDING request for one float
  */
 public final class AgentRoutes {
 
@@ -66,5 +73,42 @@ public final class AgentRoutes {
                     runway.overallWarning(),
                     Instant.now().toString()));
         });
+
+        app.get("/agents/{id}/rebalances", ctx -> {
+            ServiceResults.RebalanceOverview overview = service.getRebalanceOverview(ctx.pathParam("id"));
+
+            List<RebalanceWalletResponse> wallets = new ArrayList<>();
+            overview.wallets().forEach(wallet -> wallets.add(new RebalanceWalletResponse(
+                    wallet.type().name(), wallet.balance(), wallet.belowThreshold())));
+
+            List<RebalanceItemResponse> requests = new ArrayList<>();
+            overview.requests().forEach(request -> requests.add(toItem(request)));
+
+            Responses.send(ctx, 200, new RebalanceOverviewResponse(
+                    overview.agentId(), overview.threshold(), wallets, requests));
+        });
+
+        app.post("/agents/{id}/rebalances", ctx -> {
+            CreateRebalanceRequest request = Json.read(ctx.body(), CreateRebalanceRequest.class);
+
+            Map<String, String> errors = new LinkedHashMap<>();
+            WalletType type = WalletType.fromString(request.type());
+            if (type == null) {
+                errors.put("type", "type must be CASH or EFLOAT.");
+            }
+            Validation.failIfAny(errors);
+
+            ServiceResults.RebalanceView view = service.requestRebalance(ctx.pathParam("id"), type);
+            Responses.send(ctx, 201, toItem(view));
+        });
+    }
+
+    private static RebalanceItemResponse toItem(ServiceResults.RebalanceView view) {
+        return new RebalanceItemResponse(
+                view.id(),
+                view.type().name(),
+                view.status(),
+                view.createdAt(),
+                view.completedAt());
     }
 }

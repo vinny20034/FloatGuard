@@ -3,6 +3,7 @@ package com.floatguard.service;
 import com.floatguard.error.ConflictException;
 import com.floatguard.error.NotFoundException;
 import com.floatguard.model.integration.Agent;
+import com.floatguard.model.integration.CustomerDeposit;
 import com.floatguard.model.integration.FloatWallet;
 import com.floatguard.model.integration.Operation;
 import com.floatguard.model.integration.RebalanceRequest;
@@ -15,9 +16,14 @@ import com.floatguard.persistence.dao.OperationDao;
 import com.floatguard.persistence.dao.RebalanceDao;
 import com.floatguard.persistence.dao.WalletDao;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -119,15 +125,57 @@ public class FloatGuardService {
         return database.read(connection -> {
             Agent agent = agentDao.findById(connection, agentId)
                     .orElseThrow(() -> new NotFoundException("Unknown agent '" + agentId + "'."));
-
-            List<RunwayEstimate> estimates = new ArrayList<>();
-            for (FloatWallet wallet : walletDao.findByAgentId(connection, agentId)) {
-                List<Operation> history = operationDao.findByWalletId(connection, wallet.getId());
-                // DOMAIN CALL: estimation + warning live in RunwayEstimator.
-                estimates.add(RunwayEstimator.estimate(wallet, history));
-            }
-            return new ServiceResults.AgentRunway(agent, estimates, RunwayEstimator.overallWarning(estimates));
+            return runwayFor(connection, agent);
         });
+    }
+
+    /** GET /admin/agents - every agent with its wallets, balances and warnings. */
+    public List<ServiceResults.AgentRunway> listAgentRunways() {
+        return database.read(connection -> {
+            List<ServiceResults.AgentRunway> results = new ArrayList<>();
+            for (Agent agent : agentDao.findAll(connection)) {
+                results.add(runwayFor(connection, agent));
+            }
+            return results;
+        });
+    }
+
+    /**
+     * POST /admin/agents/{id}/assign-float - an administrator tops up one of an
+     * agent's wallets. Recorded as a deposit so the change is auditable and the
+     * runway estimate reflects the top-up.
+     */
+    public ServiceResults.OperationLogEntry assignFloat(String agentId, WalletType type, double amount) {
+        String walletId = database.read(connection -> {
+            if (!agentDao.existsById(connection, agentId)) {
+                throw new NotFoundException("Unknown agent '" + agentId + "'.");
+            }
+            return walletDao.findByAgentId(connection, agentId).stream()
+                    .filter(wallet -> wallet.getType() == type)
+                    .map(FloatWallet::getId)
+                    .findFirst()
+                    .orElseThrow(() -> new NotFoundException(
+                            "Agent '" + agentId + "' has no " + type + " wallet."));
+        });
+        return logOperation(walletId, new CustomerDeposit(amount, Instant.now()));
+    }
+
+    /**
+     * The agent that owns a wallet, or empty when the wallet does not exist.
+     * Used by the API layer to authorise wallet-scoped operations.
+     */
+    public Optional<String> findWalletOwner(String walletId) {
+        return database.read(connection -> walletDao.findById(connection, walletId).map(FloatWallet::getAgentId));
+    }
+
+    private ServiceResults.AgentRunway runwayFor(Connection connection, Agent agent) throws SQLException {
+        List<RunwayEstimate> estimates = new ArrayList<>();
+        for (FloatWallet wallet : walletDao.findByAgentId(connection, agent.getId())) {
+            List<Operation> history = operationDao.findByWalletId(connection, wallet.getId());
+            // DOMAIN CALL: estimation + warning live in RunwayEstimator.
+            estimates.add(RunwayEstimator.estimate(wallet, history));
+        }
+        return new ServiceResults.AgentRunway(agent, estimates, RunwayEstimator.overallWarning(estimates));
     }
 
     /** PUT /rebalance/{id} - marks a rebalance request COMPLETED. */
@@ -140,5 +188,65 @@ public class FloatGuardService {
             rebalanceDao.update(connection, request);
             return request;
         });
+    }
+
+    /**
+     * GET /agents/{id}/rebalances - the agent's floats measured against the
+     * threshold, plus every request raised on its wallets.
+     */
+    public ServiceResults.RebalanceOverview getRebalanceOverview(String agentId) {
+        return database.read(connection -> {
+            if (!agentDao.existsById(connection, agentId)) {
+                throw new NotFoundException("Unknown agent '" + agentId + "'.");
+            }
+
+            List<ServiceResults.RebalanceWallet> walletViews = new ArrayList<>();
+            Map<String, WalletType> typeByWalletId = new HashMap<>();
+            for (FloatWallet wallet : walletDao.findByAgentId(connection, agentId)) {
+                typeByWalletId.put(wallet.getId(), wallet.getType());
+                walletViews.add(new ServiceResults.RebalanceWallet(
+                        wallet.getType(), wallet.getBalance(), wallet.isBelowRebalanceThreshold()));
+            }
+
+            List<ServiceResults.RebalanceView> requests = new ArrayList<>();
+            for (RebalanceRequest request : rebalanceDao.listByAgentId(connection, agentId)) {
+                requests.add(toView(request, typeByWalletId.get(request.getWalletId())));
+            }
+
+            return new ServiceResults.RebalanceOverview(
+                    agentId, FloatWallet.REBALANCE_THRESHOLD, walletViews, requests);
+        });
+    }
+
+    /**
+     * POST /agents/{id}/rebalances - raises a PENDING request for one float. A
+     * request is only raised when the float has none pending, so a double click
+     * cannot create duplicates.
+     */
+    public ServiceResults.RebalanceView requestRebalance(String agentId, WalletType type) {
+        return database.inTransaction(connection -> {
+            FloatWallet wallet = walletDao.findByAgentId(connection, agentId).stream()
+                    .filter(candidate -> candidate.getType() == type)
+                    .findFirst()
+                    .orElseThrow(() -> new NotFoundException(
+                            "Agent '" + agentId + "' has no " + type + " wallet."));
+
+            RebalanceRequest pending = rebalanceDao.findPendingByWalletId(connection, wallet.getId()).orElse(null);
+            if (pending == null) {
+                // DOMAIN CALL: the wallet decides how a request for it is built.
+                pending = wallet.createRebalanceRequest();
+                rebalanceDao.insert(connection, pending);
+            }
+            return toView(pending, type);
+        });
+    }
+
+    private ServiceResults.RebalanceView toView(RebalanceRequest request, WalletType type) {
+        return new ServiceResults.RebalanceView(
+                request.getId(),
+                type,
+                request.getStatus().name(),
+                request.getCreatedAt().toString(),
+                request.getCompletedAt() == null ? null : request.getCompletedAt().toString());
     }
 }

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="FloatGuard administrator console to monitor agents and assign float">
+  <title>FloatGuard | Admin Console</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="app-shell">
+
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="admin.html" aria-label="FloatGuard home">
+        <span class="brand-mark">F</span>
+        <span>
+          <strong>FloatGuard</strong>
+          <small>ADMIN CONSOLE</small>
+        </span>
+      </a>
+
+      <div class="profile-card">
+        <div class="avatar admin-avatar">AD</div>
+        <div class="profile-copy">
+          <strong id="adminName">Administrator</strong>
+          <span>Role: <b>ADMIN</b></span>
+        </div>
+        <span class="online-dot" title="Connected to backend"></span>
+      </div>
+
+      <p class="nav-heading">MONITORING</p>
+
+      <nav class="main-nav" aria-label="Main navigation">
+        <a href="#agents" class="nav-link active" data-section="agents">
+          <span class="nav-icon">▦</span> Agents
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="demo-note">
+          <span class="demo-pulse"></span>
+          <div>
+            <strong>Signed in as <em id="userName">admin</em></strong>
+          </div>
+        </div>
+
+        <button class="sidebar-reset" id="signOutBtn" type="button">
+          ⎋ Sign out
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenuBtn" type="button" aria-label="Toggle menu">☰</button>
+
+        <div>
+          <div class="eyebrow">ADMINISTRATION / LIVE</div>
+          <h1 id="pageTitle">Agent monitoring</h1>
+        </div>
+
+        <div class="topbar-right">
+          <span class="demo-chip"><span></span> API CONNECTED</span>
+          <button class="outline-button compact" id="refreshBtn" type="button">↻ Refresh</button>
+        </div>
+      </header>
+
+      <div id="message" class="message" role="status" aria-live="polite"></div>
+
+      <section class="dashboard-section" id="agents">
+
+        <div class="welcome-row">
+          <div>
+            <h2>All agents</h2>
+            <p>Watch every agent's cash and e-float, and top up a wallet when it runs low.</p>
+          </div>
+          <span class="live-label"><span></span> Live backend session</span>
+        </div>
+
+        <div class="stats-strip four">
+          <div>
+            <span>Agents</span>
+            <strong id="statAgents">0</strong>
+          </div>
+          <div>
+            <span>Total cash float</span>
+            <strong id="statCash">K0.00</strong>
+          </div>
+          <div>
+            <span>Total e-float</span>
+            <strong id="statEFloat">K0.00</strong>
+          </div>
+          <div>
+            <span>Needs attention</span>
+            <strong id="statRisk">0</strong>
+          </div>
+        </div>
+
+        <div class="panel table-panel">
+
+          <div class="table-toolbar">
+            <div>
+              <h3>Agents</h3>
+              <p>Balances and runway status per agent.</p>
+            </div>
+
+            <input id="agentSearch" class="search-input" type="search" placeholder="Search name or location…">
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>AGENT</th>
+                  <th>LOCATION</th>
+                  <th>CASH FLOAT</th>
+                  <th>E-FLOAT</th>
+                  <th>STATUS</th>
+                  <th></th>
+                </tr>
+              </thead>
+
+              <tbody id="agentRows">
+                <tr>
+                  <td colspan="6" class="empty-cell">Loading agents…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+
+        <p class="footnote">
+          Assigning float records a deposit against the agent's wallet in the backend database.
+        </p>
+
+      </section>
+
+      <footer class="footer">
+        <span>© 2026 FloatGuard</span>
+        <span>Administrator console · Backend-connected</span>
+      </footer>
+
+    </main>
+  </div>
+
+  <!-- ASSIGN FLOAT MODAL -->
+  <div class="modal-overlay" id="assignModal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="assignTitle">
+      <div class="modal-head">
+        <div>
+          <span class="section-kicker">ASSIGN FLOAT</span>
+          <h3 id="assignTitle">Top up a wallet</h3>
+          <p id="assignAgentLabel">—</p>
+        </div>
+        <button class="modal-close" id="assignClose" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div id="assignMessage" class="message" role="status" aria-live="polite"></div>
+
+      <form id="assignForm" class="form-stack">
+        <label for="assignWalletType">Float to increase</label>
+        <select id="assignWalletType">
+          <option value="CASH">Cash float</option>
+          <option value="EFLOAT">E-float</option>
+        </select>
+
+        <label for="assignAmount">Amount to assign (ZMW)</label>
+        <div class="amount-input">
+          <span>K</span>
+          <input id="assignAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+        </div>
+
+        <button class="primary-button" type="submit">Assign float <span>→</span></button>
+      </form>
+    </div>
+  </div>
+
+  <script src="auth.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
