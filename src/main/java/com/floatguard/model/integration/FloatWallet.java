@@ -7,8 +7,8 @@ import java.util.UUID;
  * INTEGRATION CONTRACT (owned by the DOMAIN team)
  * ============================================================================
  * Base class for the two floats an agent holds. Owns the single hard rule of the
- * domain - a float may never go negative - and the low-float threshold that
- * decides when a rebalance should be raised.
+ * domain - a float may never go negative - and the low-float threshold used to
+ * flag a wallet that needs attention.
  *
  * <p>The REST layer never touches {@code balance} directly: it always calls
  * {@link #applyOperation(Operation)} so the non-negative invariant cannot be
@@ -79,7 +79,8 @@ public abstract class FloatWallet {
     }
 
     /** Builds a fresh PENDING rebalance request targeting this wallet. */
-    public RebalanceRequest createRebalanceRequest() {
-        return new RebalanceRequest(UUID.randomUUID().toString(), id, RebalanceStatus.PENDING, java.time.Instant.now());
+    public RebalanceRequest createRebalanceRequest(double amount, String area) {
+        return new RebalanceRequest(UUID.randomUUID().toString(), id, amount, area,
+                RebalanceStatus.PENDING, java.time.Instant.now());
     }
 }

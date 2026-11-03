@@ -4,9 +4,11 @@ import com.floatguard.error.ConflictException;
 import com.floatguard.error.NotFoundException;
 import com.floatguard.model.integration.Agent;
 import com.floatguard.model.integration.CustomerDeposit;
+import com.floatguard.model.integration.CustomerWithdrawal;
 import com.floatguard.model.integration.FloatWallet;
 import com.floatguard.model.integration.Operation;
 import com.floatguard.model.integration.RebalanceRequest;
+import com.floatguard.model.integration.RebalanceStatus;
 import com.floatguard.model.integration.RunwayEstimate;
 import com.floatguard.model.integration.RunwayEstimator;
 import com.floatguard.model.integration.WalletType;
@@ -55,10 +57,15 @@ public class FloatGuardService {
     }
 
     /** POST /agents - registers a new agent. */
-    public ServiceResults.AgentCreation registerAgent(String name, String location) {
+    public ServiceResults.AgentCreation registerAgent(String name, String location,
+                                                      String nrcNumber, String phoneNumber,
+                                                      String superAgentId) {
         Instant createdAt = Instant.now();
-        Agent agent = new Agent(UUID.randomUUID().toString(), name, location);
+        Agent agent = new Agent(UUID.randomUUID().toString(), name, location,
+                nrcNumber, phoneNumber, Agent.AGENT);
         database.inTransaction(connection -> {
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            requireSameLocation(superAgent, agent);
             agentDao.insert(connection, agent, createdAt);
             return null;
         });
@@ -104,19 +111,58 @@ public class FloatGuardService {
             walletDao.updateBalance(connection, wallet);
             operationDao.insert(connection, operationId, walletId, operation, wallet.getBalance());
 
-            // When the float has dropped below the domain threshold, make sure exactly
-            // one PENDING rebalance request exists for the wallet.
-            String rebalanceRequestId = null;
-            if (wallet.isBelowRebalanceThreshold()) {
-                RebalanceRequest pending = rebalanceDao.findPendingByWalletId(connection, walletId).orElse(null);
-                if (pending == null) {
-                    pending = wallet.createRebalanceRequest();
-                    rebalanceDao.insert(connection, pending);
-                }
-                rebalanceRequestId = pending.getId();
-            }
             return new ServiceResults.OperationLogEntry(
-                    operationId, wallet, operation, wallet.getBalance(), rebalanceRequestId);
+                    operationId, wallet, operation, wallet.getBalance(), null);
+        });
+    }
+
+    /**
+     * Records a customer cash-in or cash-out as equal-and-opposite movements
+     * across the agent's CASH and EFLOAT wallets.
+     */
+    public ServiceResults.OperationLogEntry logCustomerTransaction(String cashWalletId, Operation cashOperation) {
+        String cashOperationId = UUID.randomUUID().toString();
+        String eFloatOperationId = UUID.randomUUID().toString();
+        return database.inTransaction(connection -> {
+            FloatWallet cashWallet = walletDao.findById(connection, cashWalletId)
+                    .orElseThrow(() -> new NotFoundException("Unknown wallet '" + cashWalletId + "'."));
+            if (cashWallet.getType() != WalletType.CASH) {
+                throw new ConflictException("Customer transactions must use the agent's CASH wallet.");
+            }
+
+            FloatWallet eFloatWallet = walletDao.findByAgentId(connection, cashWallet.getAgentId()).stream()
+                    .filter(wallet -> wallet.getType() == WalletType.EFLOAT)
+                    .findFirst()
+                    .orElseThrow(() -> new ConflictException(
+                            "Customer transactions require both CASH and EFLOAT wallets."));
+
+            Operation eFloatOperation = cashOperation.isDeposit()
+                    ? new CustomerWithdrawal(cashOperation.getAmount(), cashOperation.getTimestamp())
+                    : new CustomerDeposit(cashOperation.getAmount(), cashOperation.getTimestamp());
+            double eFloatBalanceBefore = eFloatWallet.getBalance();
+
+            // Apply both domain rules before writing either balance or ledger entry.
+            cashWallet.applyOperation(cashOperation);
+            eFloatWallet.applyOperation(eFloatOperation);
+
+            walletDao.updateBalance(connection, cashWallet);
+            walletDao.updateBalance(connection, eFloatWallet);
+            operationDao.insert(connection, cashOperationId, cashWalletId, cashOperation, cashWallet.getBalance());
+            operationDao.insert(connection, eFloatOperationId, eFloatWallet.getId(),
+                    eFloatOperation, eFloatWallet.getBalance());
+
+            return new ServiceResults.OperationLogEntry(
+                    cashOperationId,
+                    cashWallet,
+                    cashOperation,
+                    cashWallet.getBalance(),
+                    null,
+                    new ServiceResults.PairedOperationLogEntry(
+                            eFloatOperationId,
+                            eFloatWallet,
+                            eFloatOperation,
+                            eFloatBalanceBefore,
+                            eFloatWallet.getBalance()));
         });
     }
 
@@ -129,11 +175,20 @@ public class FloatGuardService {
         });
     }
 
-    /** GET /admin/agents - every agent with its wallets, balances and warnings. */
-    public List<ServiceResults.AgentRunway> listAgentRunways() {
+    /** GET /admin/profile - the signed-in super agent and its wallet balances. */
+    public ServiceResults.AgentRunway getSuperAgentProfile(String superAgentId) {
+        return database.read(connection -> {
+            Agent profile = requireSuperAgent(connection, superAgentId);
+            return runwayFor(connection, profile);
+        });
+    }
+
+    /** GET /admin/agents - only ordinary agents at this super agent's location. */
+    public List<ServiceResults.AgentRunway> listAgentRunways(String superAgentId) {
         return database.read(connection -> {
             List<ServiceResults.AgentRunway> results = new ArrayList<>();
-            for (Agent agent : agentDao.findAll(connection)) {
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            for (Agent agent : agentDao.findAgentsInLocation(connection, superAgent.getLocation())) {
                 results.add(runwayFor(connection, agent));
             }
             return results;
@@ -145,19 +200,28 @@ public class FloatGuardService {
      * agent's wallets. Recorded as a deposit so the change is auditable and the
      * runway estimate reflects the top-up.
      */
-    public ServiceResults.OperationLogEntry assignFloat(String agentId, WalletType type, double amount) {
-        String walletId = database.read(connection -> {
-            if (!agentDao.existsById(connection, agentId)) {
-                throw new NotFoundException("Unknown agent '" + agentId + "'.");
-            }
-            return walletDao.findByAgentId(connection, agentId).stream()
-                    .filter(wallet -> wallet.getType() == type)
-                    .map(FloatWallet::getId)
-                    .findFirst()
-                    .orElseThrow(() -> new NotFoundException(
-                            "Agent '" + agentId + "' has no " + type + " wallet."));
+    public ServiceResults.OperationLogEntry assignFloat(String superAgentId, String agentId,
+                                                        WalletType type, double amount) {
+        return database.inTransaction(connection -> {
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            Agent agent = requireAgentInSuperAgentLocation(connection, agentId, superAgent);
+            FloatWallet source = findWallet(connection, superAgentId, type, "Super agent");
+            FloatWallet destination = findWallet(connection, agent.getId(), type, "Agent");
+            Instant occurredAt = Instant.now();
+
+            source.applyOperation(new CustomerWithdrawal(amount, occurredAt));
+            destination.applyOperation(new CustomerDeposit(amount, occurredAt));
+            walletDao.updateBalance(connection, source);
+            walletDao.updateBalance(connection, destination);
+            operationDao.insert(connection, UUID.randomUUID().toString(), source.getId(),
+                    new CustomerWithdrawal(amount, occurredAt), source.getBalance());
+            CustomerDeposit deposit = new CustomerDeposit(amount, occurredAt);
+            operationDao.insert(connection, UUID.randomUUID().toString(), destination.getId(),
+                    deposit, destination.getBalance());
+
+            return new ServiceResults.OperationLogEntry(
+                    destination.getId(), destination, deposit, destination.getBalance(), null);
         });
-        return logOperation(walletId, new CustomerDeposit(amount, Instant.now()));
     }
 
     /**
@@ -178,21 +242,136 @@ public class FloatGuardService {
         return new ServiceResults.AgentRunway(agent, estimates, RunwayEstimator.overallWarning(estimates));
     }
 
-    /** PUT /rebalance/{id} - marks a rebalance request COMPLETED. */
-    public RebalanceRequest completeRebalance(String rebalanceId) {
+    /**
+     * Approves a pending request and records the requested top-up.
+     *
+     * <p>A top-up is bought with the opposite float: an EFLOAT top-up is paid for
+     * in physical cash and a CASH top-up is paid for in e-float. That amount
+     * moves from the agent's wallet to the super agent's wallet of the same type
+     * in the same transaction. An agent without enough of the paying float rolls
+     * the whole approval back.</p>
+     */
+    public ServiceResults.RebalanceApproval approveRebalance(String rebalanceId,
+                                                             String superAgentUserId,
+                                                             String superAgentId) {
         return database.inTransaction(connection -> {
             RebalanceRequest request = rebalanceDao.findById(connection, rebalanceId)
                     .orElseThrow(() -> new NotFoundException("Unknown rebalance request '" + rebalanceId + "'."));
-            // DOMAIN CALL: state transition + completion timestamp.
+            if (request.getStatus() != RebalanceStatus.PENDING) {
+                throw new ConflictException("This rebalance request has already been approved.");
+            }
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            if (rebalanceDao.hasPassed(connection, rebalanceId, superAgentUserId)) {
+                throw new ConflictException("You have passed on this request; another local super agent can approve it.");
+            }
+            FloatWallet wallet = walletDao.findById(connection, request.getWalletId())
+                    .orElseThrow(() -> new NotFoundException("Unknown wallet '" + request.getWalletId() + "'."));
+            Agent requestingAgent = agentDao.findById(connection, wallet.getAgentId())
+                    .orElseThrow(() -> new NotFoundException("Unknown requesting agent."));
+            requireSameLocation(superAgent, requestingAgent);
+            if (requestingAgent.isSuperAgent()) {
+                throw new ConflictException("Rebalance requests can only be approved for ordinary agents.");
+            }
+
+            FloatWallet source = findWallet(connection, superAgentId, wallet.getType(), "Super agent");
+            Instant approvedAt = Instant.now();
+            CustomerWithdrawal withdrawal = new CustomerWithdrawal(request.getAmount(), approvedAt);
+            CustomerDeposit topUp = new CustomerDeposit(request.getAmount(), approvedAt);
+
+            // A top-up is bought with the other float: e-float is paid for in cash
+            // and cash is paid for in e-float. That amount moves from the agent's
+            // wallet to the super agent's wallet of the same type.
+            WalletType paymentType = wallet.getType().opposite();
+            FloatWallet agentPayment = findWallet(connection, requestingAgent.getId(), paymentType, "Agent");
+            FloatWallet superAgentPayment = findWallet(connection, superAgentId, paymentType, "Super agent");
+            CustomerWithdrawal paymentSent = new CustomerWithdrawal(request.getAmount(), approvedAt);
+            CustomerDeposit paymentReceived = new CustomerDeposit(request.getAmount(), approvedAt);
+
+            // Every rule is checked before a single balance or ledger row is written.
+            source.applyOperation(withdrawal);
+            wallet.applyOperation(topUp);
+            agentPayment.applyOperation(paymentSent);
+            superAgentPayment.applyOperation(paymentReceived);
+
+            walletDao.updateBalance(connection, source);
+            walletDao.updateBalance(connection, wallet);
+            operationDao.insert(connection, UUID.randomUUID().toString(), source.getId(),
+                    withdrawal, source.getBalance());
+            operationDao.insert(connection, UUID.randomUUID().toString(), wallet.getId(),
+                    topUp, wallet.getBalance());
+
+            walletDao.updateBalance(connection, agentPayment);
+            walletDao.updateBalance(connection, superAgentPayment);
+            operationDao.insert(connection, UUID.randomUUID().toString(), agentPayment.getId(),
+                    paymentSent, agentPayment.getBalance());
+            operationDao.insert(connection, UUID.randomUUID().toString(), superAgentPayment.getId(),
+                    paymentReceived, superAgentPayment.getBalance());
+
             request.complete();
             rebalanceDao.update(connection, request);
-            return request;
+            return new ServiceResults.RebalanceApproval(
+                    request, wallet.getType(), wallet.getBalance(), source.getBalance());
+        });
+    }
+
+    /** Lists requests from the super agent's own location, excluding requests they passed. */
+    public List<ServiceResults.AdminRebalanceView> listRebalanceRequests(
+            String superAgentUserId, String superAgentId) {
+        return database.read(connection -> {
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            List<ServiceResults.AdminRebalanceView> results = new ArrayList<>();
+            for (RebalanceRequest request :
+                    rebalanceDao.listAvailableForSuperAgent(connection, superAgent.getLocation(), superAgentUserId)) {
+                FloatWallet wallet = walletDao.findById(connection, request.getWalletId())
+                        .orElseThrow(() -> new NotFoundException("Unknown wallet '" + request.getWalletId() + "'."));
+                Agent agent = agentDao.findById(connection, wallet.getAgentId())
+                        .orElseThrow(() -> new NotFoundException("Unknown agent '" + wallet.getAgentId() + "'."));
+                if (agent.isSuperAgent()) {
+                    continue;
+                }
+                results.add(new ServiceResults.AdminRebalanceView(
+                        request.getId(),
+                        agent.getId(),
+                        agent.getName(),
+                        agent.getPhoneNumber(),
+                        agent.getLocation(),
+                        request.getArea(),
+                        wallet.getType(),
+                        request.getAmount(),
+                        request.getStatus().name(),
+                        rebalanceDao.countPasses(connection, request.getId()),
+                        request.getCreatedAt().toString(),
+                        request.getCompletedAt() == null ? null : request.getCompletedAt().toString()));
+            }
+            return results;
+        });
+    }
+
+    /** Passes a request for another super agent in the same location to handle. */
+    public void passRebalance(String rebalanceId, String superAgentUserId, String superAgentId) {
+        database.inTransaction(connection -> {
+            RebalanceRequest request = rebalanceDao.findById(connection, rebalanceId)
+                    .orElseThrow(() -> new NotFoundException("Unknown rebalance request '" + rebalanceId + "'."));
+            if (request.getStatus() != RebalanceStatus.PENDING) {
+                throw new ConflictException("Only a pending request can be passed to another super agent.");
+            }
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            FloatWallet wallet = walletDao.findById(connection, request.getWalletId())
+                    .orElseThrow(() -> new NotFoundException("Unknown wallet '" + request.getWalletId() + "'."));
+            Agent requestingAgent = agentDao.findById(connection, wallet.getAgentId())
+                    .orElseThrow(() -> new NotFoundException("Unknown requesting agent."));
+            requireSameLocation(superAgent, requestingAgent);
+            if (rebalanceDao.hasPassed(connection, rebalanceId, superAgentUserId)) {
+                throw new ConflictException("You have already passed on this request.");
+            }
+            rebalanceDao.recordPass(connection, rebalanceId, superAgentUserId, Instant.now());
+            return null;
         });
     }
 
     /**
      * GET /agents/{id}/rebalances - the agent's floats measured against the
-     * threshold, plus every request raised on its wallets.
+     * threshold, plus every request submitted for its wallets.
      */
     public ServiceResults.RebalanceOverview getRebalanceOverview(String agentId) {
         return database.read(connection -> {
@@ -210,7 +389,7 @@ public class FloatGuardService {
 
             List<ServiceResults.RebalanceView> requests = new ArrayList<>();
             for (RebalanceRequest request : rebalanceDao.listByAgentId(connection, agentId)) {
-                requests.add(toView(request, typeByWalletId.get(request.getWalletId())));
+                requests.add(toView(connection, request, typeByWalletId.get(request.getWalletId())));
             }
 
             return new ServiceResults.RebalanceOverview(
@@ -219,11 +398,12 @@ public class FloatGuardService {
     }
 
     /**
-     * POST /agents/{id}/rebalances - raises a PENDING request for one float. A
-     * request is only raised when the float has none pending, so a double click
-     * cannot create duplicates.
+     * POST /agents/{id}/rebalances - submits an amount, float type and the
+     * agent's declared proximate area. A wallet cannot have multiple outstanding
+     * requests.
      */
-    public ServiceResults.RebalanceView requestRebalance(String agentId, WalletType type) {
+    public ServiceResults.RebalanceView requestRebalance(String agentId, WalletType type,
+                                                         double amount, String area) {
         return database.inTransaction(connection -> {
             FloatWallet wallet = walletDao.findByAgentId(connection, agentId).stream()
                     .filter(candidate -> candidate.getType() == type)
@@ -231,22 +411,63 @@ public class FloatGuardService {
                     .orElseThrow(() -> new NotFoundException(
                             "Agent '" + agentId + "' has no " + type + " wallet."));
 
-            RebalanceRequest pending = rebalanceDao.findPendingByWalletId(connection, wallet.getId()).orElse(null);
-            if (pending == null) {
-                // DOMAIN CALL: the wallet decides how a request for it is built.
-                pending = wallet.createRebalanceRequest();
-                rebalanceDao.insert(connection, pending);
+            if (rebalanceDao.findPendingByWalletId(connection, wallet.getId()).isPresent()) {
+                throw new ConflictException("This wallet already has a pending rebalance request.");
             }
-            return toView(pending, type);
+            RebalanceRequest pending = wallet.createRebalanceRequest(amount, area);
+            rebalanceDao.insert(connection, pending);
+            return toView(connection, pending, type);
         });
     }
 
-    private ServiceResults.RebalanceView toView(RebalanceRequest request, WalletType type) {
+    private ServiceResults.RebalanceView toView(Connection connection, RebalanceRequest request, WalletType type)
+            throws SQLException {
         return new ServiceResults.RebalanceView(
                 request.getId(),
                 type,
+                request.getAmount(),
+                request.getArea(),
                 request.getStatus().name(),
+                rebalanceDao.countPasses(connection, request.getId()),
                 request.getCreatedAt().toString(),
                 request.getCompletedAt() == null ? null : request.getCompletedAt().toString());
+    }
+
+    private Agent requireSuperAgent(Connection connection, String superAgentId) throws SQLException {
+        if (superAgentId == null) {
+            throw new ConflictException("This administrator account has no super-agent profile. Register a super-agent account.");
+        }
+        Agent profile = agentDao.findById(connection, superAgentId)
+                .orElseThrow(() -> new NotFoundException("Unknown super-agent profile."));
+        if (!profile.isSuperAgent()) {
+            throw new ConflictException("This account is not linked to a super-agent profile.");
+        }
+        return profile;
+    }
+
+    private Agent requireAgentInSuperAgentLocation(Connection connection, String agentId, Agent superAgent)
+            throws SQLException {
+        Agent agent = agentDao.findById(connection, agentId)
+                .orElseThrow(() -> new NotFoundException("Unknown agent '" + agentId + "'."));
+        requireSameLocation(superAgent, agent);
+        if (agent.isSuperAgent()) {
+            throw new ConflictException("Float can only be assigned to an ordinary agent.");
+        }
+        return agent;
+    }
+
+    private void requireSameLocation(Agent superAgent, Agent agent) {
+        if (!superAgent.getLocation().trim().equalsIgnoreCase(agent.getLocation().trim())) {
+            throw new com.floatguard.error.ForbiddenException(
+                    "You can only manage rebalance requests and agents in your registered location.");
+        }
+    }
+
+    private FloatWallet findWallet(Connection connection, String ownerId, WalletType type, String ownerLabel)
+            throws SQLException {
+        return walletDao.findByAgentId(connection, ownerId).stream()
+                .filter(wallet -> wallet.getType() == type)
+                .findFirst()
+                .orElseThrow(() -> new NotFoundException(ownerLabel + " has no " + type + " wallet."));
     }
 }

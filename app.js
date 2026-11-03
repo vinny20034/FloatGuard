@@ -6,10 +6,10 @@
  * creating one. Endpoints used:
  *   GET  /agents/{id}/runway      balances + warnings (id = signed-in agent)
  *   GET  /agents/{id}/rebalances  floats vs threshold + the agent's requests
- *   POST /agents/{id}/rebalances  raise a PENDING request for one float
+ *   POST /agents/{id}/rebalances  request a top-up amount for one float
  *   POST /deposit                 log a deposit into ONE wallet
  *   POST /withdraw                log a withdrawal from ONE wallet
- *   PUT  /rebalance/{id}          mark a rebalance request COMPLETED
+ *   PUT  /admin/rebalance-requests/{id}/approve  approve and credit a request
  *
  * Balances and rebalance status live in the backend (SQLite). There is no
  * operation-history endpoint yet, so the transaction list is kept in this
@@ -22,8 +22,7 @@ const HISTORY_KEY = "floatguard_history_v1";
 let user = null;
 // { agentId, agentName, location, wallets: { CASH: {...}, EFLOAT: {...} }, overallWarning, shortId }
 let session = null;
-// { threshold, wallets: [...], requests: [...] } loaded from the backend.
-let rebalanceData = { threshold: 0, wallets: [], requests: [] };
+let rebalanceLog = [];
 let history = [];
 
 const $ = (id) => document.getElementById(id);
@@ -69,6 +68,13 @@ function walletLabel(type) {
 function formatDateTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value || "") : date.toLocaleString();
+}
+
+function agentInitials(displayName) {
+  const parts = String(displayName || "Agent").trim().split(/\s+/).filter(Boolean);
+  return parts.length > 1
+    ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase()
+    : (parts[0].slice(0, 2) || "AG").toUpperCase();
 }
 
 /**
@@ -121,17 +127,48 @@ function loadHistory() {
  * ------------------------------------------------------------------ */
 
 async function refreshState() {
-  const res = await api("GET", `/agents/${encodeURIComponent(session.agentId)}/runway`);
-  if (!res.ok) return false;
+  const agentId = encodeURIComponent(session.agentId);
+  const [runwayRes, rebalanceRes] = await Promise.all([
+    api("GET", `/agents/${agentId}/runway`),
+    api("GET", `/agents/${agentId}/rebalances`)
+  ]);
+  if (!runwayRes.ok) {
+    showMessage(runwayRes.message, "error");
+    return false;
+  }
+  if (!rebalanceRes.ok) {
+    showMessage(rebalanceRes.message, "error");
+    return false;
+  }
 
-  const data = res.data;
+  const data = runwayRes.data;
+  const rebalanceWallets = new Map(
+    (rebalanceRes.data.wallets || []).map(wallet => [wallet.type, wallet])
+  );
   session.agentName = data.agentName;
   session.location = data.location;
+  session.phoneNumber = data.phoneNumber;
   session.overallWarning = data.overallWarning;
 
   const wallets = {};
-  (data.wallets || []).forEach(w => { wallets[w.type] = w; });
+  (data.wallets || []).forEach(w => {
+    wallets[w.type] = {
+      ...w,
+      id: w.walletId,
+      belowThreshold: rebalanceWallets.get(w.type)?.belowThreshold || false
+    };
+  });
   session.wallets = wallets;
+
+  rebalanceLog = (rebalanceRes.data.requests || []).map(request => ({
+    id: request.id,
+    walletType: request.type,
+    amount: request.amount,
+    area: request.area || "",
+    status: request.status,
+    handoffCount: request.handoffCount || 0,
+    date: formatDateTime(request.createdAt)
+  }));
 
   updateDashboard();
   return true;
@@ -148,12 +185,10 @@ async function bootstrap() {
 
   session = { agentId: user.agentId, agentName: "", location: "", wallets: {}, overallWarning: "OK" };
   history = loadHistory();
-  rebalanceLog = loadRebalances();
 
   if ($("userName")) $("userName").textContent = user.username;
 
-  const ok = await refreshState();
-  if (!ok) showMessage("Could not load your float data. Please sign in again.", "error");
+  await refreshState();
 }
 
 /* ------------------------------------------------------------------ *
@@ -185,8 +220,13 @@ function updateDashboard() {
   const efloat = session.wallets.EFLOAT || { balance: 0, warning: "OK" };
 
   if ($("agentName")) $("agentName").textContent = session.agentName || "Agent";
-  if ($("welcomeName")) $("welcomeName").textContent = session.agentName || "Agent";
+  if ($("welcomeName")) $("welcomeName").textContent = user?.username || session.agentName || "Agent";
   if ($("agentId")) $("agentId").textContent = session.agentId || "—";
+  if ($("agentPhone")) $("agentPhone").textContent = session.phoneNumber || "—";
+  if ($("headerUserName")) $("headerUserName").textContent = session.agentName || user?.username || "Agent";
+  if ($("headerAgentAvatar")) {
+    $("headerAgentAvatar").textContent = agentInitials(session.agentName || user?.username);
+  }
 
   if ($("cashBalance")) $("cashBalance").textContent = money(cash.balance);
   if ($("eFloatBalance")) $("eFloatBalance").textContent = money(efloat.balance);
@@ -202,13 +242,32 @@ function updateDashboard() {
     const low = session.overallWarning && session.overallWarning !== "OK";
     warning.style.display = low ? "block" : "none";
     warning.textContent =
-      "A float is running low. A rebalance request has been raised automatically — open the Rebalance tab to review it.";
+      "A float is running low. Open Rebalance to request a top-up from an administrator.";
   }
 
+  renderRebalanceBalances();
   renderHistory();
   renderRecentTransactions();
   renderRebalanceRequests();
   updateTransactionStats();
+}
+
+function renderRebalanceBalances() {
+  const container = $("rebalanceBalances");
+  if (!container || !session) return;
+
+  container.innerHTML = ["CASH", "EFLOAT"].map(type => {
+    const wallet = session.wallets[type];
+    const balance = wallet ? Number(wallet.balance) : 0;
+    const belowThreshold = wallet?.belowThreshold || false;
+    return `<article class="panel">
+      <span class="section-kicker">${type === "EFLOAT" ? "E-FLOAT" : "CASH FLOAT"}</span>
+      <h3>${money(balance)}</h3>
+      <span class="status ${belowThreshold ? "pending" : "available"}">
+        ${belowThreshold ? "Needs attention" : "Available"}
+      </span>
+    </article>`;
+  }).join("");
 }
 
 function transactionRow(t, compact = false) {
@@ -324,19 +383,18 @@ async function recordTransaction(kind, amount, walletType) {
     walletType,
     amount: data.amount,
     balanceAfter: data.balanceAfter,
+    pairedOperation: data.pairedOperation,
     date: new Date(data.timestamp).toLocaleString()
   });
   saveHistory();
 
-  if (data.rebalanceRequestId) {
-    addRebalance(data.rebalanceRequestId, walletType);
+  const refreshed = await refreshState();
+  if (refreshed) {
+    showMessage(
+      `${kind === "deposit" ? "Cash-in" : "Cash-out"} of ${money(amount)} recorded. ` +
+      `${walletLabel(data.pairedOperation.type)} ${data.pairedOperation.operationType === "DEPOSIT" ? "increased" : "decreased"} by ${money(data.pairedOperation.amount)}.`
+    );
   }
-
-  await refreshState();
-
-  showMessage(
-    `${kind === "deposit" ? "Deposit" : "Withdrawal"} of ${money(amount)} recorded on the ${walletLabel(walletType)}.`
-  );
 
   return true;
 }
@@ -347,7 +405,7 @@ async function handleDeposit(event) {
   const amount = amountFrom("depositAmount");
   if (amount === null) return;
 
-  const walletType = $("depositFloatType").value;
+  const walletType = "CASH";
   if (await recordTransaction("deposit", amount, walletType)) {
     $("depositForm").reset();
   }
@@ -359,7 +417,7 @@ async function handleWithdrawal(event) {
   const amount = amountFrom("withdrawAmount");
   if (amount === null) return;
 
-  const walletType = $("withdrawFloatType").value;
+  const walletType = "CASH";
   if (await recordTransaction("withdrawal", amount, walletType)) {
     $("withdrawalForm").reset();
   }
@@ -368,19 +426,6 @@ async function handleWithdrawal(event) {
 /* ------------------------------------------------------------------ *
  * Rebalance log
  * ------------------------------------------------------------------ */
-
-function addRebalance(id, walletType) {
-  if (rebalanceLog.some(r => r.id === id)) return;
-
-  rebalanceLog.unshift({
-    id,
-    walletType,
-    status: "PENDING",
-    date: new Date().toLocaleString()
-  });
-
-  saveRebalances();
-}
 
 function renderRebalanceRequests() {
   const list = $("rebalanceRequests");
@@ -395,36 +440,45 @@ function renderRebalanceRequests() {
     <div class="rebalance-item">
       <div>
         <strong>${request.walletType === "EFLOAT" ? "E-float" : "Cash"} rebalance</strong>
-        <p>Request ${escapeHTML(String(request.id).slice(0, 8))} · ${escapeHTML(request.date)}</p>
+        <p>${money(request.amount)} requested · ${escapeHTML(request.date)}</p>
+        <p>Area declared: ${escapeHTML(request.area || "—")}</p>
       </div>
 
-      <span class="status ${request.status === "PENDING" ? "pending" : "completed"}">
-        ${escapeHTML(request.status)}
+      <span class="status ${request.status === "PENDING" ? "pending" : "available"}">
+        ${request.status === "PENDING"
+          ? (request.handoffCount > 0 ? "Passed — waiting for another local super agent" : "Pending super-agent approval")
+          : "Approved"}
       </span>
-
-      ${request.status === "PENDING"
-        ? `<button type="button" data-complete="${escapeHTML(String(request.id))}">Mark completed</button>`
-        : ""}
     </div>
   `).join("");
 }
 
-async function completeRebalance(id) {
-  const request = rebalanceLog.find(r => r.id === id);
-  if (!request) return;
+async function submitRebalanceRequest(event) {
+  event.preventDefault();
+  const amount = amountFrom("rebalanceAmount");
+  if (amount === null) return;
 
-  const res = await api("PUT", `/rebalance/${encodeURIComponent(id)}`);
+  const area = ($("rebalanceArea")?.value || "").trim();
+  if (!area) {
+    showMessage("Enter the area or town you are operating from.", "error");
+    return;
+  }
 
+  const walletType = $("rebalanceFloatType").value;
+  const res = await api(
+    "POST",
+    `/agents/${encodeURIComponent(session.agentId)}/rebalances`,
+    { type: walletType, amount, area }
+  );
   if (!res.ok) {
     showMessage(res.message, "error");
     return;
   }
 
-  request.status = res.data.status || "COMPLETED";
-  saveRebalances();
-  renderRebalanceRequests();
-
-  showMessage("Rebalance request marked as completed in the database.");
+  $("rebalanceForm").reset();
+  if (await refreshState()) {
+    showMessage(`${walletLabel(walletType)} top-up request for ${money(amount)} sent to the administrator.`);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -509,6 +563,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("depositForm")?.addEventListener("submit", handleDeposit);
   $("withdrawalForm")?.addEventListener("submit", handleWithdrawal);
+  $("rebalanceForm")?.addEventListener("submit", submitRebalanceRequest);
+  $("rebalanceRefreshBtn")?.addEventListener("click", () => refreshState());
 
   $("historySearch")?.addEventListener("input", searchTransactions);
   $("exportBtn")?.addEventListener("click", exportTransactions);
@@ -530,10 +586,8 @@ document.addEventListener("DOMContentLoaded", () => {
     $("sidebar")?.classList.toggle("open");
   });
 
-  $("rebalanceRequests")?.addEventListener("click", event => {
-    const button = event.target.closest("[data-complete]");
-    if (button) completeRebalance(button.dataset.complete);
-  });
-
   bootstrap();
+  window.setInterval(() => {
+    if (session && !document.hidden) refreshState();
+  }, 10000);
 });

@@ -12,5 +12,9 @@ public record RegisterRequest(String username,
                               String role,
                               String inviteCode,
                               String agentName,
-                              String location) {
+                              String location,
+                              String nrcNumber,
+                              String phoneNumber,
+                              Double openingCash,
+                              Double openingEFloat) {
 }

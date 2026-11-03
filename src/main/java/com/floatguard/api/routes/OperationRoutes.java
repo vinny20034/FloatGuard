@@ -57,11 +57,13 @@ public final class OperationRoutes {
                 ? new CustomerDeposit(request.amount(), timestamp)
                 : new CustomerWithdrawal(request.amount(), timestamp);
 
-        // May throw InsufficientFloatException -> mapped to 409 by ErrorMapper.
-        ServiceResults.OperationLogEntry entry = service.logOperation(walletId, operation);
+        // Both wallet movements are persisted atomically; insufficient balance
+        // in either wallet is mapped to 409 by ErrorMapper.
+        ServiceResults.OperationLogEntry entry = service.logCustomerTransaction(walletId, operation);
 
         // balanceBefore is derived: balanceAfter minus the signed effect of the operation.
         double balanceBefore = entry.balanceAfter() - operation.signedAmount();
+        ServiceResults.PairedOperationLogEntry paired = entry.pairedOperation();
 
         Responses.send(ctx, 200, new OperationResponse(
                 entry.id(),
@@ -71,16 +73,21 @@ public final class OperationRoutes {
                 entry.balanceAfter(),
                 balanceBefore,
                 operation.getTimestamp().toString(),
-                entry.rebalanceRequestId()));
+                entry.rebalanceRequestId(),
+                new OperationResponse.PairedOperationResponse(
+                        paired.id(),
+                        paired.wallet().getId(),
+                        paired.wallet().getType().name(),
+                        paired.operation().getOperationType(),
+                        paired.operation().getAmount(),
+                        paired.balanceBefore(),
+                        paired.balanceAfter())));
     }
 
-    /**
-     * An agent may only touch its own wallets; an ADMIN may touch any. A missing
-     * wallet is left for the service to report as a 404.
-     */
+    /** Agents and super agents may only apply customer transactions to their own wallets. */
     private static void requireWalletAccess(Context ctx, FloatGuardService service, String walletId) {
         User user = AuthMiddleware.currentUser(ctx);
-        if (user == null || user.getRole() == Role.ADMIN) {
+        if (user == null) {
             return;
         }
         service.findWalletOwner(walletId)

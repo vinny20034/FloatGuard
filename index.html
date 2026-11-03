@@ -65,7 +65,7 @@
         <!-- REGISTER -->
         <form id="registerForm" class="auth-form" hidden autocomplete="on">
           <h2>Create an account</h2>
-          <p class="auth-sub">Register as an agent, or as an administrator with the invite code.</p>
+          <p class="auth-sub">Register as an agent or a location-based super agent.</p>
 
           <label for="regUsername">Username</label>
           <input id="regUsername" name="username" type="text" placeholder="Choose a username" required>
@@ -76,20 +76,30 @@
           <label for="regRole">Account type</label>
           <select id="regRole" name="role">
             <option value="AGENT">Agent</option>
-            <option value="ADMIN">Administrator</option>
+            <option value="ADMIN">Super agent</option>
           </select>
 
-          <div id="agentFields">
-            <label for="regAgentName">Business name</label>
-            <input id="regAgentName" name="agentName" type="text" placeholder="e.g. Chuma Mobile Money">
+          <label for="regAgentName">Business / super-agent name</label>
+          <input id="regAgentName" name="agentName" type="text" placeholder="e.g. Chuma Mobile Money" required>
 
-            <label for="regLocation">Location</label>
-            <input id="regLocation" name="location" type="text" placeholder="e.g. Lusaka, Kamwala">
-          </div>
+          <label for="regLocation">Location</label>
+          <input id="regLocation" name="location" type="text" placeholder="e.g. Lusaka" required>
+
+          <label for="regNrcNumber">NRC number</label>
+          <input id="regNrcNumber" name="nrcNumber" type="text" placeholder="Enter NRC number" required>
+
+          <label for="regPhoneNumber">Phone number</label>
+          <input id="regPhoneNumber" name="phoneNumber" type="tel" placeholder="e.g. +260 97 123 4567" required>
+
+          <label for="regOpeningCash">Opening cash balance (ZMW)</label>
+          <input id="regOpeningCash" name="openingCash" type="number" min="0" step="0.01" value="0.00" required>
+
+          <label for="regOpeningEFloat">Opening e-float balance (ZMW)</label>
+          <input id="regOpeningEFloat" name="openingEFloat" type="number" min="0" step="0.01" value="0.00" required>
 
           <div id="adminFields" hidden>
             <label for="regInviteCode">Admin invite code</label>
-            <input id="regInviteCode" name="inviteCode" type="text" placeholder="Provided by your administrator">
+            <input id="regInviteCode" name="inviteCode" type="text" value="FL12" placeholder="Enter admin invite code">
           </div>
 
           <button class="primary-button" type="submit">Create account <span>→</span></button>

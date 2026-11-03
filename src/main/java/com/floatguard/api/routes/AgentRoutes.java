@@ -1,6 +1,7 @@
 package com.floatguard.api.routes;
 
 import com.floatguard.api.Responses;
+import com.floatguard.api.AuthMiddleware;
 import com.floatguard.api.Validation;
 import com.floatguard.api.dto.AgentResponse;
 import com.floatguard.api.dto.CreateAgentRequest;
@@ -43,14 +44,19 @@ public final class AgentRoutes {
             Map<String, String> errors = new LinkedHashMap<>();
             Validation.requireNonBlank(errors, "name", request.name());
             Validation.requireNonBlank(errors, "location", request.location());
+            Validation.requireNonBlank(errors, "nrcNumber", request.nrcNumber());
+            Validation.requireNonBlank(errors, "phoneNumber", request.phoneNumber());
             Validation.failIfAny(errors);
 
+            var user = AuthMiddleware.currentUser(ctx);
             ServiceResults.AgentCreation creation =
-                    service.registerAgent(request.name().trim(), request.location().trim());
+                    service.registerAgent(request.name().trim(), request.location().trim(),
+                            request.nrcNumber().trim(), request.phoneNumber().trim(), user.getAgentId());
 
             Agent agent = creation.agent();
             Responses.send(ctx, 201, new AgentResponse(
-                    agent.getId(), agent.getName(), agent.getLocation(), creation.createdAt().toString()));
+                    agent.getId(), agent.getName(), agent.getLocation(), agent.getPhoneNumber(),
+                    creation.createdAt().toString()));
         });
 
         app.get("/agents/{id}/runway", ctx -> {
@@ -69,6 +75,7 @@ public final class AgentRoutes {
                     agent.getId(),
                     agent.getName(),
                     agent.getLocation(),
+                    agent.getPhoneNumber(),
                     wallets,
                     runway.overallWarning(),
                     Instant.now().toString()));
@@ -96,9 +103,12 @@ public final class AgentRoutes {
             if (type == null) {
                 errors.put("type", "type must be CASH or EFLOAT.");
             }
+            Validation.requirePositiveAmount(errors, "amount", request.amount());
+            Validation.requireNonBlank(errors, "area", request.area());
             Validation.failIfAny(errors);
 
-            ServiceResults.RebalanceView view = service.requestRebalance(ctx.pathParam("id"), type);
+            ServiceResults.RebalanceView view =
+                    service.requestRebalance(ctx.pathParam("id"), type, request.amount(), request.area().trim());
             Responses.send(ctx, 201, toItem(view));
         });
     }
@@ -107,7 +117,10 @@ public final class AgentRoutes {
         return new RebalanceItemResponse(
                 view.id(),
                 view.type().name(),
+                view.amount(),
+                view.area(),
                 view.status(),
+                view.handoffCount(),
                 view.createdAt(),
                 view.completedAt());
     }

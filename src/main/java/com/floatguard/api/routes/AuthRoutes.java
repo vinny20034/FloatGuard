@@ -48,15 +48,23 @@ public final class AuthRoutes {
             Role role = Role.fromString(request.role());
             if (role == null) {
                 errors.put("role", "role is required and must be one of ADMIN, AGENT.");
-            } else if (role == Role.AGENT) {
+            } else {
                 Validation.requireNonBlank(errors, "agentName", request.agentName());
                 Validation.requireNonBlank(errors, "location", request.location());
+                Validation.requireNonBlank(errors, "nrcNumber", request.nrcNumber());
+                Validation.requireNonBlank(errors, "phoneNumber", request.phoneNumber());
+                Validation.requireNonNegativeAmount(errors, "openingCash", request.openingCash());
+                Validation.requireNonNegativeAmount(errors, "openingEFloat", request.openingEFloat());
+                if (role == Role.ADMIN) {
+                    Validation.requireNonBlank(errors, "inviteCode", request.inviteCode());
+                }
             }
             Validation.failIfAny(errors);
 
             ServiceResults.Authenticated auth = authService.register(
                     request.username(), request.password(), role, request.inviteCode(),
-                    request.agentName(), request.location());
+                    request.agentName(), request.location(), request.nrcNumber(), request.phoneNumber(),
+                    request.openingCash(), request.openingEFloat());
 
             Responses.send(ctx, 201, toResponse(auth.user(), auth.token()));
         });

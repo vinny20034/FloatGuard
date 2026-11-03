@@ -9,14 +9,28 @@ import java.util.Objects;
  */
 public class Agent {
 
+    public static final String AGENT = "AGENT";
+    public static final String SUPER_AGENT = "SUPER_AGENT";
+
     private final String id;
     private final String name;
     private final String location;
+    private final String nrcNumber;
+    private final String phoneNumber;
+    private final String kind;
 
     public Agent(String id, String name, String location) {
+        this(id, name, location, "", "", AGENT);
+    }
+
+    public Agent(String id, String name, String location, String nrcNumber,
+                 String phoneNumber, String kind) {
         this.id = id;
         this.name = name;
         this.location = location;
+        this.nrcNumber = nrcNumber;
+        this.phoneNumber = phoneNumber;
+        this.kind = kind;
     }
 
     public String getId() {
@@ -31,21 +45,19 @@ public class Agent {
         return location;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Agent)) return false;
-        Agent other = (Agent) o;
-        return Objects.equals(id, other.id);
+    public String getNrcNumber() {
+        return nrcNumber;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
+    public String getPhoneNumber() {
+        return phoneNumber;
     }
 
-    @Override
-    public String toString() {
-        return "Agent{id=" + id + ", name=" + name + ", location=" + location + "}";
+    public String getKind() {
+        return kind;
+    }
+
+    public boolean isSuperAgent() {
+        return SUPER_AGENT.equals(kind);
     }
 }

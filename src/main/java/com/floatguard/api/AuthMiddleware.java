@@ -48,6 +48,11 @@ public final class AuthMiddleware {
             if ((path.equals("/admin") || path.startsWith("/admin/")) && user.getRole() != Role.ADMIN) {
                 throw new ForbiddenException("Administrator access is required.");
             }
+            if ((path.equals("/admin") || path.startsWith("/admin/"))
+                    && user.getRole() == Role.ADMIN && user.getAgentId() == null) {
+                throw new ForbiddenException(
+                        "This administrator account has no super-agent profile. Register a super-agent account.");
+            }
 
             if (path.equals("/agents") && user.getRole() != Role.ADMIN) {
                 throw new ForbiddenException("Only an administrator can register agents directly.");
@@ -55,7 +60,7 @@ public final class AuthMiddleware {
 
             String agentId = agentIdFromPath(path);
             if (agentId != null) {
-                requireAgentAccess(user, agentId);
+                requireAgentAccess(user, agentId, authService);
             }
         });
     }
@@ -88,7 +93,6 @@ public final class AuthMiddleware {
                 || path.startsWith(AGENTS_PREFIX)
                 || path.equals("/deposit")
                 || path.equals("/withdraw")
-                || path.startsWith("/rebalance/")
                 || path.equals("/admin")
                 || path.startsWith("/admin/")
                 || path.equals("/auth/me")
@@ -106,9 +110,12 @@ public final class AuthMiddleware {
         return id.isEmpty() ? null : id;
     }
 
-    private static void requireAgentAccess(User user, String agentId) {
+    private static void requireAgentAccess(User user, String agentId, AuthService authService) {
         if (user.getRole() == Role.ADMIN) {
-            return;
+            if (authService.canSuperAgentAccessAgent(user.getAgentId(), agentId)) {
+                return;
+            }
+            throw new ForbiddenException("You can only access agents in your registered location.");
         }
         if (!agentId.equals(user.getAgentId())) {
             throw new ForbiddenException("You can only access your own agent account.");

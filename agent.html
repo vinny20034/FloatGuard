@@ -30,6 +30,7 @@
         <div class="profile-copy">
           <strong id="agentName">Loading...</strong>
           <span>Agent ID: <b id="agentId">-</b></span>
+          <span>Phone: <b id="agentPhone">-</b></span>
         </div>
         <span class="online-dot" title="Connected to backend"></span>
       </div>
@@ -78,9 +79,10 @@
 
         <div class="topbar-right">
           <div class="account-chip">
+            <div class="account-avatar" id="headerAgentAvatar" aria-hidden="true">AG</div>
             <div class="account-text">
               <strong id="headerUserName">-</strong>
-              <span>Agent ID: <b id="headerAgentId">-</b></span>
+              <span>Agent workspace</span>
             </div>
           </div>
 
@@ -95,7 +97,7 @@
 
         <div class="welcome-row">
           <div>
-            <h2>Good day, <span id="welcomeName">Agent</span></h2>
+            <h2>Welcome, <span id="welcomeName">Agent</span></h2>
             <p>Here is your float position and activity at a glance.</p>
           </div>
         </div>
@@ -161,8 +163,8 @@
           <article class="panel transaction-panel">
             <div class="panel-heading">
               <div>
-                <h3>Customer deposit</h3>
-                <p>Add to the selected float after serving a customer.</p>
+                <h3>Customer cash-in</h3>
+                <p>Record cash received from a customer.</p>
               </div>
             </div>
 
@@ -174,16 +176,11 @@
                 <input id="depositAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
               </div>
 
-              <label for="depositFloatType">Float to increase</label>
-
-              <select id="depositFloatType">
-                <option value="CASH">Cash float</option>
-                <option value="EFLOAT">E-float</option>
-              </select>
-
               <div class="movement-note">
-                <span>Selected float</span>
+                <span>Cash</span>
                 <b class="positive">increases</b>
+                <span>E-float</span>
+                <b class="negative">decreases</b>
               </div>
 
               <button class="primary-button" type="submit">
@@ -195,8 +192,8 @@
           <article class="panel transaction-panel">
             <div class="panel-heading">
               <div>
-                <h3>Customer withdrawal</h3>
-                <p>Subtract from the selected float after serving a customer.</p>
+                <h3>Customer cash-out</h3>
+                <p>Record cash paid out to a customer.</p>
               </div>
             </div>
 
@@ -208,16 +205,11 @@
                 <input id="withdrawAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
               </div>
 
-              <label for="withdrawFloatType">Float to decrease</label>
-
-              <select id="withdrawFloatType">
-                <option value="CASH">Cash float</option>
-                <option value="EFLOAT">E-float</option>
-              </select>
-
               <div class="movement-note">
-                <span>Selected float</span>
+                <span>Cash</span>
                 <b class="negative">decreases</b>
+                <span>E-float</span>
+                <b class="positive">increases</b>
               </div>
 
               <button class="secondary-button" type="submit">
@@ -332,10 +324,6 @@
 
         </div>
 
-        <p class="footnote">
-          Balances are stored in the backend database. This session's transaction list is kept in your browser.
-        </p>
-
       </section>
 
       <!-- REBALANCE -->
@@ -345,7 +333,7 @@
           <div>
             <span class="section-kicker">FLOAT SUPPORT</span>
             <h2>Rebalance</h2>
-            <p>See how each float sits against the rebalance threshold and ask for a top-up.</p>
+            <p>Request a cash or e-float top-up. Your request stays pending until an administrator approves it.</p>
           </div>
 
           <button class="outline-button" id="rebalanceRefreshBtn" type="button">
@@ -359,9 +347,38 @@
 
         <div class="section-heading">
           <div>
+            <span class="section-kicker">NEW REQUEST</span>
+            <h2>Request a top-up</h2>
+            <p>Choose the float, declare the area you are operating from, and enter the amount an administrator should add.</p>
+          </div>
+        </div>
+
+        <div class="panel transaction-panel">
+          <form id="rebalanceForm" class="form-stack">
+            <label for="rebalanceFloatType">Float to rebalance</label>
+            <select id="rebalanceFloatType">
+              <option value="CASH">Cash float (paid with your e-float)</option>
+              <option value="EFLOAT">E-float (paid with your cash)</option>
+            </select>
+
+            <label for="rebalanceArea">Your area / town</label>
+            <input id="rebalanceArea" type="text" placeholder="e.g. Kabwata market, Lusaka" required>
+
+            <label for="rebalanceAmount">Requested amount (ZMW)</label>
+            <div class="amount-input">
+              <span>K</span>
+              <input id="rebalanceAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
+            </div>
+
+            <button class="primary-button" type="submit">Send request <span>→</span></button>
+          </form>
+        </div>
+
+        <div class="section-heading">
+          <div>
             <span class="section-kicker">REQUEST LOG</span>
             <h2>Your requests</h2>
-            <p>Every rebalance request raised on your account.</p>
+            <p>Requests and administrator approval status for your account.</p>
           </div>
         </div>
 
@@ -369,16 +386,10 @@
           <p class="empty-cell">No rebalance requests yet.</p>
         </div>
 
-        <p class="footnote">
-          A request asks an administrator to top up the float. Resolving it records the outcome; no cash or
-          e-float moves between agents automatically.
-        </p>
-
       </section>
 
       <footer class="footer">
         <span>FloatGuard 2026</span>
-        <span>Agent float management | Backend-connected dashboard</span>
       </footer>
 
     </main>

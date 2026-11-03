@@ -1,8 +1,8 @@
 package com.floatguard.model.auth;
 
 /**
- * An account that can sign in. Admins are not tied to an agent; an agent user
- * always points at the single {@code agents} row it owns.
+ * An account that can sign in. Both agents and super agents point at the
+ * operational profile and wallets they own.
  *
  * <p>The password is only ever held as a bcrypt hash - the plain value never
  * leaves the registration/login flow.</p>
@@ -39,7 +39,7 @@ public class User {
         return role;
     }
 
-    /** The agent this user owns, or {@code null} for an ADMIN. */
+    /** The operational profile this user owns. */
     public String getAgentId() {
         return agentId;
     }
