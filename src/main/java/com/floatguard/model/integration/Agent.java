@@ -1,11 +1,11 @@
 package com.floatguard.model.integration;
 
+import java.util.Objects;
+
 /**
- * ============================================================================
- * INTEGRATION CONTRACT (owned by the DOMAIN team)
- * ============================================================================
- * A mobile-money agent. Wallets are stored separately (see the {@code wallets}
- * table) and loaded per request, so this type only carries the agent's identity.
+ * A mobile-money agent. Carries only identity: wallets are stored separately
+ * and loaded per request. The class is immutable (private final fields, no setters).
+ * Two agents are equal when they have the same id.
  */
 public class Agent {
 
@@ -29,5 +29,23 @@ public class Agent {
 
     public String getLocation() {
         return location;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Agent)) return false;
+        Agent other = (Agent) o;
+        return Objects.equals(id, other.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
+    @Override
+    public String toString() {
+        return "Agent{id=" + id + ", name=" + name + ", location=" + location + "}";
     }
 }
