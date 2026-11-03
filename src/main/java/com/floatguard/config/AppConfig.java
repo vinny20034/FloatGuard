@@ -3,6 +3,10 @@ package com.floatguard.config;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Runtime configuration, read from environment variables with sensible defaults
@@ -11,31 +15,33 @@ import java.nio.file.Paths;
  * <pre>
  *   PORT                        HTTP port              (default 7000)
  *   FLOATGUARD_DB_URL           JDBC url               (default jdbc:sqlite:data/floatguard.db)
- *   FLOATGUARD_ADMIN_INVITE_CODE admin registration code (default FLOATGUARD-ADMIN)
+ *   FLOATGUARD_ADMIN_INVITE_CODE comma-separated admin registration codes
+ *                               (default FL12)
  * </pre>
  */
 public final class AppConfig {
 
     private static final String DEFAULT_PORT = "7000";
     private static final String DEFAULT_DB_URL = "jdbc:sqlite:data/floatguard.db";
-    private static final String DEFAULT_ADMIN_INVITE_CODE = "FLOATGUARD-ADMIN";
+    private static final String DEFAULT_ADMIN_INVITE_CODES = "FL12";
     private static final String SQLITE_PREFIX = "jdbc:sqlite:";
 
     private final int port;
     private final String jdbcUrl;
-    private final String adminInviteCode;
+    private final Set<String> adminInviteCodes;
 
-    private AppConfig(int port, String jdbcUrl, String adminInviteCode) {
+    private AppConfig(int port, String jdbcUrl, Set<String> adminInviteCodes) {
         this.port = port;
         this.jdbcUrl = jdbcUrl;
-        this.adminInviteCode = adminInviteCode;
+        this.adminInviteCodes = adminInviteCodes;
     }
 
     public static AppConfig fromEnvironment() {
         return new AppConfig(
                 parsePort(System.getenv().getOrDefault("PORT", DEFAULT_PORT)),
                 System.getenv().getOrDefault("FLOATGUARD_DB_URL", DEFAULT_DB_URL),
-                System.getenv().getOrDefault("FLOATGUARD_ADMIN_INVITE_CODE", DEFAULT_ADMIN_INVITE_CODE));
+                parseAdminInviteCodes(System.getenv().getOrDefault(
+                        "FLOATGUARD_ADMIN_INVITE_CODE", DEFAULT_ADMIN_INVITE_CODES)));
     }
 
     public int port() {
@@ -46,9 +52,9 @@ public final class AppConfig {
         return jdbcUrl;
     }
 
-    /** Code required to create an ADMIN account through self-registration. */
-    public String adminInviteCode() {
-        return adminInviteCode;
+    /** Codes accepted to create an ADMIN account through self-registration. */
+    public Set<String> adminInviteCodes() {
+        return adminInviteCodes;
     }
 
     /**
@@ -84,5 +90,17 @@ public final class AppConfig {
         } catch (NumberFormatException e) {
             throw new IllegalStateException("PORT must be a valid TCP port but was: " + raw, e);
         }
+    }
+
+    private static Set<String> parseAdminInviteCodes(String raw) {
+        Set<String> codes = Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(code -> !code.isEmpty())
+                .map(code -> code.toUpperCase(Locale.ROOT))
+                .collect(Collectors.toUnmodifiableSet());
+        if (codes.isEmpty()) {
+            throw new IllegalStateException("FLOATGUARD_ADMIN_INVITE_CODE must contain at least one code.");
+        }
+        return codes;
     }
 }

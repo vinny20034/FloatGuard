@@ -10,6 +10,15 @@ const AUTH_TOKEN_KEY = "floatguard_token_v1";
 const AUTH_USER_KEY = "floatguard_user_v1";
 
 const Auth = (() => {
+  function apiUrl(path) {
+    const localHosts = ["localhost", "127.0.0.1", "[::1]"];
+    const liveServerPorts = ["5500", "5501"];
+    if (localHosts.includes(window.location.hostname) && liveServerPorts.includes(window.location.port)) {
+      return `${window.location.protocol}//${window.location.hostname}:7000${path}`;
+    }
+    return path;
+  }
+
   function save(token, user) {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
@@ -51,7 +60,7 @@ const Auth = (() => {
 
     let response;
     try {
-      response = await fetch(path, options);
+      response = await fetch(apiUrl(path), options);
     } catch {
       return { ok: false, status: 0, message: "Cannot reach the backend. Make sure the server is running." };
     }

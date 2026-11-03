@@ -21,24 +21,23 @@
         <span class="brand-mark">F</span>
         <span>
           <strong>FloatGuard</strong>
-          <small>ADMIN CONSOLE</small>
+          <small>SUPER AGENT DASHBOARD</small>
         </span>
       </a>
 
       <div class="profile-card">
         <div class="avatar admin-avatar">AD</div>
         <div class="profile-copy">
-          <strong id="adminName">Administrator</strong>
-          <span>Role: <b>ADMIN</b></span>
+          <strong id="adminName">Super agent</strong>
+          <span>Location: <b id="adminLocation">—</b></span>
         </div>
-        <span class="online-dot" title="Connected to backend"></span>
       </div>
 
-      <p class="nav-heading">MONITORING</p>
+      <p class="nav-heading">LOCAL OPERATIONS</p>
 
       <nav class="main-nav" aria-label="Main navigation">
         <a href="#agents" class="nav-link active" data-section="agents">
-          <span class="nav-icon">▦</span> Agents
+          <span class="nav-icon">▦</span> My area
         </a>
       </nav>
 
@@ -62,12 +61,11 @@
         <button class="mobile-menu" id="mobileMenuBtn" type="button" aria-label="Toggle menu">☰</button>
 
         <div>
-          <div class="eyebrow">ADMINISTRATION / LIVE</div>
-          <h1 id="pageTitle">Agent monitoring</h1>
+          <div class="eyebrow">SUPER AGENT / LOCAL OPERATIONS</div>
+          <h1 id="pageTitle">Super agent dashboard</h1>
         </div>
 
         <div class="topbar-right">
-          <span class="demo-chip"><span></span> API CONNECTED</span>
           <button class="outline-button compact" id="refreshBtn" type="button">↻ Refresh</button>
         </div>
       </header>
@@ -75,13 +73,57 @@
       <div id="message" class="message" role="status" aria-live="polite"></div>
 
       <section class="dashboard-section" id="agents">
+        <div class="balance-grid">
+          <article class="balance-card cash-card">
+            <div class="balance-top"><span class="balance-label">TOTAL CASH</span></div>
+            <p class="balance-value" id="superCashBalance">K0.00</p>
+            <div class="balance-bottom"><span>Your cash wallet</span></div>
+          </article>
+          <article class="balance-card efloat-card">
+            <div class="balance-top"><span class="balance-label">TOTAL E-FLOAT</span></div>
+            <p class="balance-value" id="superEFloatBalance">K0.00</p>
+            <div class="balance-bottom"><span>Your e-float wallet</span></div>
+          </article>
+          <article class="balance-card total-card">
+            <div class="balance-top"><span class="balance-label">TOTAL CASH + E-FLOAT</span></div>
+            <p class="balance-value" id="superTotalBalance">K0.00</p>
+            <div class="balance-bottom"><span>Your combined wallet balance</span></div>
+          </article>
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <span class="section-kicker">AGENT SUPPORT</span>
+            <h2>Rebalance requests <span id="pendingRequestCount" class="status pending">0 pending</span></h2>
+            <p>Review requests from agents in your location. Approvals transfer funds from your matching wallet.</p>
+          </div>
+        </div>
+
+        <div class="panel table-panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>REQUESTING AGENT</th>
+                  <th>LOCATION / TOWN</th>
+                  <th>FLOAT</th>
+                  <th>AMOUNT</th>
+                  <th>REQUESTED</th>
+                  <th>STATUS / ACTION</th>
+                </tr>
+              </thead>
+              <tbody id="rebalanceRequestRows">
+                <tr><td colspan="6" class="empty-cell">Loading requests...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
 
         <div class="welcome-row">
           <div>
             <h2>All agents</h2>
-            <p>Watch every agent's cash and e-float, and top up a wallet when it runs low.</p>
+            <p>Watch agents in your registered location and transfer float from your own wallet.</p>
           </div>
-          <span class="live-label"><span></span> Live backend session</span>
         </div>
 
         <div class="stats-strip four">
@@ -118,7 +160,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>AGENT</th>
+                  <th>AGENT / PHONE</th>
                   <th>LOCATION</th>
                   <th>CASH FLOAT</th>
                   <th>E-FLOAT</th>
@@ -137,15 +179,10 @@
 
         </div>
 
-        <p class="footnote">
-          Assigning float records a deposit against the agent's wallet in the backend database.
-        </p>
-
       </section>
 
       <footer class="footer">
         <span>© 2026 FloatGuard</span>
-        <span>Administrator console · Backend-connected</span>
       </footer>
 
     </main>
@@ -157,7 +194,7 @@
       <div class="modal-head">
         <div>
           <span class="section-kicker">ASSIGN FLOAT</span>
-          <h3 id="assignTitle">Top up a wallet</h3>
+          <h3 id="assignTitle">Transfer float</h3>
           <p id="assignAgentLabel">—</p>
         </div>
         <button class="modal-close" id="assignClose" type="button" aria-label="Close">×</button>
@@ -172,13 +209,13 @@
           <option value="EFLOAT">E-float</option>
         </select>
 
-        <label for="assignAmount">Amount to assign (ZMW)</label>
+        <label for="assignAmount">Amount to transfer (ZMW)</label>
         <div class="amount-input">
           <span>K</span>
           <input id="assignAmount" type="number" min="0.01" step="0.01" placeholder="0.00" required>
         </div>
 
-        <button class="primary-button" type="submit">Assign float <span>→</span></button>
+        <button class="primary-button" type="submit">Transfer float <span>→</span></button>
       </form>
     </div>
   </div>

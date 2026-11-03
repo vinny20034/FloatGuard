@@ -3,6 +3,8 @@ package com.floatguard.api.routes;
 import com.floatguard.api.Responses;
 import com.floatguard.api.Validation;
 import com.floatguard.api.dto.AdminAgentResponse;
+import com.floatguard.api.dto.AdminProfileResponse;
+import com.floatguard.api.dto.AdminRebalanceRequestResponse;
 import com.floatguard.api.dto.AssignFloatRequest;
 import com.floatguard.api.dto.AssignFloatResponse;
 import com.floatguard.api.dto.WalletRunwayResponse;
@@ -31,9 +33,45 @@ public final class AdminRoutes {
 
     public static void register(Javalin app, FloatGuardService service) {
 
+        app.get("/admin/profile", ctx -> {
+            var user = com.floatguard.api.AuthMiddleware.currentUser(ctx);
+            ServiceResults.AgentRunway runway = service.getSuperAgentProfile(user.getAgentId());
+            Agent profile = runway.agent();
+            List<WalletRunwayResponse> wallets = runway.estimates().stream()
+                    .map(estimate -> new WalletRunwayResponse(
+                            estimate.walletId(), estimate.walletType().name(), estimate.balance(),
+                            estimate.runwayDays(), estimate.warning()))
+                    .toList();
+            Responses.send(ctx, 200, new AdminProfileResponse(
+                    profile.getId(), profile.getName(), profile.getLocation(),
+                    profile.getPhoneNumber(), wallets, runway.overallWarning()));
+        });
+
+        app.get("/admin/rebalance-requests", ctx -> {
+            var user = com.floatguard.api.AuthMiddleware.currentUser(ctx);
+            List<AdminRebalanceRequestResponse> requests =
+                    service.listRebalanceRequests(user.getId(), user.getAgentId()).stream()
+                    .map(request -> new AdminRebalanceRequestResponse(
+                            request.id(),
+                            request.agentId(),
+                            request.agentName(),
+                            request.agentPhoneNumber(),
+                            request.location(),
+                            request.area(),
+                            request.type().name(),
+                            request.amount(),
+                            request.status(),
+                            request.handoffCount(),
+                            request.createdAt(),
+                            request.completedAt()))
+                    .toList();
+            Responses.send(ctx, 200, Map.of("requests", requests));
+        });
+
         app.get("/admin/agents", ctx -> {
+            var user = com.floatguard.api.AuthMiddleware.currentUser(ctx);
             List<AdminAgentResponse> agents = new ArrayList<>();
-            for (ServiceResults.AgentRunway runway : service.listAgentRunways()) {
+            for (ServiceResults.AgentRunway runway : service.listAgentRunways(user.getAgentId())) {
                 Agent agent = runway.agent();
 
                 List<WalletRunwayResponse> wallets = new ArrayList<>();
@@ -45,7 +83,8 @@ public final class AdminRoutes {
                         estimate.warning())));
 
                 agents.add(new AdminAgentResponse(
-                        agent.getId(), agent.getName(), agent.getLocation(), wallets, runway.overallWarning()));
+                        agent.getId(), agent.getName(), agent.getLocation(), agent.getPhoneNumber(),
+                        wallets, runway.overallWarning()));
             }
             Responses.send(ctx, 200, Map.of("agents", agents));
         });
@@ -62,7 +101,9 @@ public final class AdminRoutes {
             Validation.requirePositiveAmount(errors, "amount", request.amount());
             Validation.failIfAny(errors);
 
-            ServiceResults.OperationLogEntry entry = service.assignFloat(agentId, type, request.amount());
+            var user = com.floatguard.api.AuthMiddleware.currentUser(ctx);
+            ServiceResults.OperationLogEntry entry =
+                    service.assignFloat(user.getAgentId(), agentId, type, request.amount());
 
             Responses.send(ctx, 200, new AssignFloatResponse(
                     agentId,

@@ -30,6 +30,16 @@ public final class Validation {
         }
     }
 
+    public static void requireNonNegativeAmount(Map<String, String> errors, String field, Double value) {
+        if (value == null) {
+            errors.put(field, field + " is required.");
+            return;
+        }
+        if (!Double.isFinite(value) || value < 0) {
+            errors.put(field, field + " must be a number greater than or equal to zero.");
+        }
+    }
+
     /** Throws a 400 if any field failed validation. */
     public static void failIfAny(Map<String, String> errors) {
         if (!errors.isEmpty()) {

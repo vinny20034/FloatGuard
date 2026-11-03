@@ -6,7 +6,10 @@ package com.floatguard.api.dto;
  */
 public record RebalanceItemResponse(String id,
                                     String type,
+                                    double amount,
+                                    String area,
                                     String status,
+                                    int handoffCount,
                                     String createdAt,
                                     String completedAt) {
 }

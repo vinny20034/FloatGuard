@@ -6,6 +6,7 @@ import java.util.List;
 public record RunwayResponse(String agentId,
                              String agentName,
                              String location,
+                             String phoneNumber,
                              List<WalletRunwayResponse> wallets,
                              String overallWarning,
                              String generatedAt) {

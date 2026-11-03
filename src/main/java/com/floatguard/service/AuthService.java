@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -39,40 +40,43 @@ public class AuthService {
     private final SessionDao sessionDao;
     private final AgentDao agentDao;
     private final WalletDao walletDao;
-    private final String adminInviteCode;
+    private final Set<String> adminInviteCodes;
 
     public AuthService(Database database,
                        UserDao userDao,
                        SessionDao sessionDao,
                        AgentDao agentDao,
                        WalletDao walletDao,
-                       String adminInviteCode) {
+                       Set<String> adminInviteCodes) {
         this.database = database;
         this.userDao = userDao;
         this.sessionDao = sessionDao;
         this.agentDao = agentDao;
         this.walletDao = walletDao;
-        this.adminInviteCode = adminInviteCode;
+        this.adminInviteCodes = Set.copyOf(adminInviteCodes);
     }
 
     /**
      * POST /auth/register.
      *
      * <p>An AGENT account also creates the agent record and both of its wallets,
-     * in the same transaction. Wallet balances start at zero: an administrator
-     * assigns the opening float afterwards.</p>
+    * in the same transaction, using the opening balances declared during signup.</p>
      */
     public ServiceResults.Authenticated register(String username,
                                                  String password,
                                                  Role role,
                                                  String inviteCode,
                                                  String agentName,
-                                                 String location) {
+                                                 String location,
+                                                 String nrcNumber,
+                                                 String phoneNumber,
+                                                 Double openingCash,
+                                                 Double openingEFloat) {
         String normalisedUsername = username.trim().toLowerCase(Locale.ROOT);
-        String suppliedCode = inviteCode == null ? "" : inviteCode.trim();
+        String suppliedCode = inviteCode == null ? "" : inviteCode.trim().toUpperCase(Locale.ROOT);
 
-        if (role == Role.ADMIN && !adminInviteCode.equals(suppliedCode)) {
-            throw new ForbiddenException("A valid admin invite code is required to create an administrator account.");
+        if (role == Role.ADMIN && !adminInviteCodes.contains(suppliedCode)) {
+            throw new ForbiddenException("Use a valid administrator invite code to create an administrator account.");
         }
 
         String passwordHash = BCrypt.hashpw(password, BCrypt.gensalt());
@@ -83,15 +87,15 @@ public class AuthService {
                 throw new ConflictException("Username '" + normalisedUsername + "' is already taken.");
             }
 
-            String agentId = null;
-            if (role == Role.AGENT) {
-                agentId = UUID.randomUUID().toString();
-                agentDao.insert(connection, new Agent(agentId, agentName.trim(), location.trim()), createdAt);
-                walletDao.insert(connection,
-                        FloatWallet.create(WalletType.CASH, UUID.randomUUID().toString(), agentId, 0), createdAt);
-                walletDao.insert(connection,
-                        FloatWallet.create(WalletType.EFLOAT, UUID.randomUUID().toString(), agentId, 0), createdAt);
-            }
+            String agentId = UUID.randomUUID().toString();
+            String kind = role == Role.ADMIN ? Agent.SUPER_AGENT : Agent.AGENT;
+            Agent profile = new Agent(agentId, agentName.trim(), location.trim(), nrcNumber.trim(),
+                    phoneNumber.trim(), kind);
+            agentDao.insert(connection, profile, createdAt);
+            walletDao.insert(connection,
+                    FloatWallet.create(WalletType.CASH, UUID.randomUUID().toString(), agentId, openingCash), createdAt);
+            walletDao.insert(connection,
+                    FloatWallet.create(WalletType.EFLOAT, UUID.randomUUID().toString(), agentId, openingEFloat), createdAt);
 
             User created = new User(UUID.randomUUID().toString(), normalisedUsername, passwordHash, role, agentId);
             userDao.insert(connection, created, createdAt);
@@ -128,6 +132,20 @@ public class AuthService {
                 return Optional.empty();
             }
             return userDao.findById(connection, userId.get());
+        });
+    }
+
+    /** True only when this super agent is allowed to manage an ordinary agent in its location. */
+    public boolean canSuperAgentAccessAgent(String superAgentId, String agentId) {
+        if (superAgentId == null) {
+            return false;
+        }
+        return database.read(connection -> {
+            Agent superAgent = agentDao.findById(connection, superAgentId).orElse(null);
+            Agent agent = agentDao.findById(connection, agentId).orElse(null);
+            return superAgent != null && superAgent.isSuperAgent()
+                    && agent != null && !agent.isSuperAgent()
+                    && superAgent.getLocation().trim().equalsIgnoreCase(agent.getLocation().trim());
         });
     }
 

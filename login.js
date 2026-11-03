@@ -29,8 +29,9 @@ function selectTab(tab) {
 
 function syncRoleFields() {
   const isAgent = document.getElementById("regRole").value === "AGENT";
-  document.getElementById("agentFields").hidden = !isAgent;
   document.getElementById("adminFields").hidden = isAgent;
+  document.querySelector('label[for="regAgentName"]').textContent =
+    isAgent ? "Business name" : "Super-agent name";
 }
 
 async function onSignedIn(result) {
@@ -68,12 +69,13 @@ async function handleRegister(event) {
     role
   };
 
-  if (role === "AGENT") {
-    body.agentName = document.getElementById("regAgentName").value.trim();
-    body.location = document.getElementById("regLocation").value.trim();
-  } else {
-    body.inviteCode = document.getElementById("regInviteCode").value.trim();
-  }
+  body.agentName = document.getElementById("regAgentName").value.trim();
+  body.location = document.getElementById("regLocation").value.trim();
+  body.nrcNumber = document.getElementById("regNrcNumber").value.trim();
+  body.phoneNumber = document.getElementById("regPhoneNumber").value.trim();
+  body.openingCash = document.getElementById("regOpeningCash").valueAsNumber;
+  body.openingEFloat = document.getElementById("regOpeningEFloat").valueAsNumber;
+  if (role === "ADMIN") body.inviteCode = document.getElementById("regInviteCode").value.trim();
 
   const res = await Auth.api("POST", "/auth/register", body);
   if (!res.ok) {
@@ -84,13 +86,6 @@ async function handleRegister(event) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  // Already signed in? Skip straight to the right page.
-  const current = Auth.user();
-  if (Auth.token() && current) {
-    window.location.replace(Auth.home(current.role));
-    return;
-  }
-
   document.querySelectorAll(".auth-tab").forEach(button => {
     button.addEventListener("click", () => selectTab(button.dataset.tab));
   });

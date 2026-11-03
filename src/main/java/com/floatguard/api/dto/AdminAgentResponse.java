@@ -6,6 +6,7 @@ import java.util.List;
 public record AdminAgentResponse(String id,
                                  String name,
                                  String location,
+                                 String phoneNumber,
                                  List<WalletRunwayResponse> wallets,
                                  String overallWarning) {
 }

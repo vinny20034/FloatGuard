@@ -15,6 +15,14 @@ public enum WalletType {
     EFLOAT;
 
     /**
+     * The float an agent hands over to pay for the other one: e-float is bought
+     * with cash and cash is bought with e-float.
+     */
+    public WalletType opposite() {
+        return this == CASH ? EFLOAT : CASH;
+    }
+
+    /**
      * Parses a client-supplied wallet type. Kept here (rather than in the REST layer)
      * so the accepted values live next to the type itself.
      *

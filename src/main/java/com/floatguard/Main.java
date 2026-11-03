@@ -64,16 +64,24 @@ public final class Main {
                 new SessionDao(),
                 agentDao,
                 walletDao,
-                config.adminInviteCode());
+                config.adminInviteCodes());
 
         // 4. REST server + static files.
         Javalin app = Javalin.create(javalinConfig -> {
             javalinConfig.showJavalinBanner = false;
+            javalinConfig.bundledPlugins.enableCors(cors -> cors.addRule(rule -> rule.allowHost(
+                    "http://localhost:5500",
+                    "http://127.0.0.1:5500",
+                    "http://localhost:5501",
+                    "http://127.0.0.1:5501")));
             // Serves the single-page UI from src/main/resources/public at "/".
             javalinConfig.staticFiles.add(staticFiles -> {
                 staticFiles.hostedPath = "/";
                 staticFiles.directory = "/public";
                 staticFiles.location = Location.CLASSPATH;
+                // Rebuilt HTML/CSS/JS must never be reused from the browser cache, or a
+                // tab left open across a rebuild keeps running the previous JavaScript.
+                staticFiles.headers = java.util.Map.of("Cache-Control", "no-store");
             });
         });
 
