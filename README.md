@@ -30,8 +30,8 @@ OOP Group Project — Zambia University College of Technology.
 | Page | Who uses it | Purpose |
 |---|---|---|
 | `/index.html` | everyone | sign in / create an account |
-| `/agent.html` | AGENT | record deposits & withdrawals, watch runway, request rebalances |
-| `/admin.html` | ADMIN (a "super agent") | monitor agents in their location, assign float, approve/pass rebalance requests |
+| `/agent.html` | AGENT | record deposits & withdrawals, watch runway, request / cancel rebalances |
+| `/admin.html` | ADMIN (a "super agent") | monitor agents in their location, assign float, approve/pass/delete rebalance requests |
 
 - Every agent owns exactly two wallets: **CASH** and **EFLOAT**.
 - The dashboard shows cash, e-float, combined balance, low-float warnings, and an
@@ -41,9 +41,13 @@ OOP Group Project — Zambia University College of Technology.
   - **Customer cash-out** (a withdrawal): CASH decreases and EFLOAT increases.
 - Both balances are checked before anything is written. If either side would go
   negative, the whole transaction is rejected and no balance or ledger row changes.
-- Agents request a cash **or** e-float top-up; administrators review, then either
-  **approve** (the float is moved and paid for with the opposite float) or **pass**
-  the request to another administrator in the same location.
+- Agents request a cash **or** e-float top-up. A request is only accepted when the
+  agent already holds enough of the **opposite** float to pay for it, so an
+  unaffordable request is never raised. Administrators then **approve** (the float
+  is moved and paid for with the opposite float), **pass** the request to another
+  administrator in the same location, or **delete** it.
+- While a wallet has a pending request, the agent can **cancel** it from the
+  dashboard to free the wallet and raise a new one.
 - Administrators can also top up an agent directly with **Assign float**.
 
 State (accounts, wallets, ledger, requests, sessions) lives in SQLite. The agent
@@ -177,11 +181,11 @@ src/main/java/com/floatguard/
 │   ├── dto/                      request/response records (the wire shapes)
 │   └── routes/                   one handler per resource group
 │       ├── AuthRoutes.java       /auth/register, /auth/login, /auth/logout, /auth/me
-│       ├── AgentRoutes.java      POST /agents, runway + rebalance read/write
+│       ├── AgentRoutes.java      POST /agents, runway + rebalance read/write/cancel
 │       ├── WalletRoutes.java     POST /agents/{id}/wallets
 │       ├── OperationRoutes.java  POST /deposit, POST /withdraw
 │       ├── AdminRoutes.java      /admin/profile, /admin/agents, assign-float, request list
-│       └── RebalanceRoutes.java  /admin/rebalance-requests/{id}/approve, /pass
+│       └── RebalanceRoutes.java  /admin/rebalance-requests/{id}/approve, /pass, DELETE
 ├── error/                        typed exceptions (Validation / NotFound / Conflict / Unauthorized / Forbidden)
 ├── model/
 │   ├── auth/                     Role (ADMIN/AGENT), User (account + bcrypt password hash)
@@ -318,14 +322,16 @@ locations.
 | 7 | `GET` | `/agents/{id}/runway` | ADMIN (same location) / owner | Balances + runway estimates + warning | 200 |
 | 8 | `GET` | `/agents/{id}/rebalances` | ADMIN (same location) / owner | Floats vs threshold + the agent's requests | 200 |
 | 9 | `POST` | `/agents/{id}/rebalances` | ADMIN (same location) / owner | Raise a PENDING request for one float | 201 |
-| 10 | `POST` | `/deposit` | any (own wallets) | Log a customer cash-in | 200 |
-| 11 | `POST` | `/withdraw` | any (own wallets) | Log a customer cash-out | 200 |
-| 12 | `GET` | `/admin/profile` | ADMIN | The super agent's own profile + wallets | 200 |
-| 13 | `GET` | `/admin/agents` | ADMIN | Agents in the super agent's location, with balances + warnings | 200 |
-| 14 | `GET` | `/admin/rebalance-requests` | ADMIN | Pending requests in the location (excluding ones this admin passed) | 200 |
-| 15 | `PUT` | `/admin/rebalance-requests/{id}/approve` | ADMIN | Approve a request: move float + take opposite-float payment | 200 |
-| 16 | `PUT` | `/admin/rebalance-requests/{id}/pass` | ADMIN | Hand the request to another local super agent | 200 |
-| 17 | `POST` | `/admin/agents/{id}/assign-float` | ADMIN (same location) | Move float from the admin's wallet to an agent's wallet | 200 |
+| 10 | `DELETE` | `/agents/{id}/rebalances/{requestId}` | ADMIN (same location) / owner | Cancel a PENDING request so the wallet is freed | 200 |
+| 11 | `POST` | `/deposit` | any (own wallets) | Log a customer cash-in | 200 |
+| 12 | `POST` | `/withdraw` | any (own wallets) | Log a customer cash-out | 200 |
+| 13 | `GET` | `/admin/profile` | ADMIN | The super agent's own profile + wallets | 200 |
+| 14 | `GET` | `/admin/agents` | ADMIN | Agents in the super agent's location, with balances + warnings | 200 |
+| 15 | `GET` | `/admin/rebalance-requests` | ADMIN | Pending requests in the location (excluding ones this admin passed) | 200 |
+| 16 | `PUT` | `/admin/rebalance-requests/{id}/approve` | ADMIN | Approve a request: move float + take opposite-float payment | 200 |
+| 17 | `PUT` | `/admin/rebalance-requests/{id}/pass` | ADMIN | Hand the request to another local super agent | 200 |
+| 18 | `DELETE` | `/admin/rebalance-requests/{id}` | ADMIN | Delete a request (clear a stuck or unapprovable one) | 200 |
+| 19 | `POST` | `/admin/agents/{id}/assign-float` | ADMIN (same location) | Move float from the admin's wallet to an agent's wallet | 200 |
 
 ### Error statuses
 
@@ -335,7 +341,7 @@ locations.
 | `401` | No token, unknown/revoked token, or bad login credentials | `UNAUTHORIZED` |
 | `403` | Wrong role, not your account, different location, invalid admin invite code | `FORBIDDEN` |
 | `404` | Unknown agent / wallet / rebalance id, or an unmatched route | `NOT_FOUND` |
-| `409` | Duplicate username, wallet of that type already exists, pending request already exists, request already approved/passed | `CONFLICT` |
+| `409` | Duplicate username, wallet of that type already exists, pending request already exists, request already approved/passed, or cancelling a request that is not pending | `CONFLICT` |
 | `409` | An operation would push a float below zero | `INSUFFICIENT_FLOAT` |
 | `500` | Unexpected error (logged with stack trace; generic body) | `INTERNAL_ERROR` |
 
@@ -429,7 +435,7 @@ Errors: `400` bad type or negative opening balance, `404` unknown agent,
 }
 ```
 
-### 8–9) `GET` / `POST /agents/{id}/rebalances`
+### 8–10) `GET` / `POST` / `DELETE /agents/{id}/rebalances`
 
 ```json
 // GET 200
@@ -450,12 +456,28 @@ Errors: `400` bad type or negative opening balance, `404` unknown agent,
 // POST request (raise a request for one float; amount and area are required)
 { "type": "CASH", "amount": 300, "area": "Kamwala" }
 // POST 201 -> a single request object, same shape as one entry in "requests"
+
+// DELETE /agents/{id}/rebalances/{requestId}  -> 200
+{ "id": "056fab8b-...", "status": "DELETED", "message": "Rebalance request cancelled." }
 ```
 
 A wallet can have at most **one** PENDING request at a time; submitting a second
 returns `409`.
 
-### 10–11) `POST /deposit` and `POST /withdraw`
+**The requested float is paid for with the opposite float.** A cash top-up is
+settled in e-float and an e-float top-up in cash, so at request time the agent
+must already hold **at least the requested amount of the opposite float**.
+If it does not, the request is rejected with `409 INSUFFICIENT_FLOAT`
+(`"Your CASH/EFLOAT balance is too low to pay for this ... top-up."`) and no
+request is created — this prevents requests that could never be approved from
+piling up and locking the wallet.
+
+**Cancelling.** The owning agent (or an administrator in the same location) can
+cancel a PENDING request via `DELETE /agents/{id}/rebalances/{requestId}`, which
+frees the wallet so a new request can be raised. A `COMPLETED` request cannot be
+cancelled this way (`409`).
+
+### 11–12) `POST /deposit` and `POST /withdraw`
 
 ```json
 // request — walletId MUST be the agent's CASH wallet
@@ -482,7 +504,7 @@ returns `409`.
   `404` unknown wallet, `409 INSUFFICIENT_FLOAT` when either side would go below
   zero (no partial update).
 
-### 12) `GET /admin/profile`
+### 13) `GET /admin/profile`
 
 ```json
 // 200 — the signed-in super agent
@@ -492,7 +514,7 @@ returns `409`.
   "overallWarning": "OK" }
 ```
 
-### 13) `GET /admin/agents`
+### 14) `GET /admin/agents`
 
 ```json
 // 200 — ordinary agents in the super agent's location
@@ -513,7 +535,7 @@ returns `409`.
 }
 ```
 
-### 14) `GET /admin/rebalance-requests`
+### 15) `GET /admin/rebalance-requests`
 
 ```json
 // 200
@@ -540,7 +562,7 @@ returns `409`.
 Only requests in the super agent's location are returned, and any request this
 super agent has already passed is excluded.
 
-### 15) `PUT /admin/rebalance-requests/{id}/approve`
+### 16) `PUT /admin/rebalance-requests/{id}/approve`
 
 Approving a top-up is a **two-sided trade**, all in one transaction:
 
@@ -563,7 +585,7 @@ the requested float, the whole approval rolls back.
 Errors: `404` unknown id, `403` different location, `409` already approved, or
 already passed by this administrator, or the requesting profile is a super agent.
 
-### 16) `PUT /admin/rebalance-requests/{id}/pass`
+### 17) `PUT /admin/rebalance-requests/{id}/pass`
 
 Records a handoff so another super agent in the same location can pick the request
 up. The passing administrator can no longer approve it.
@@ -577,7 +599,21 @@ up. The passing administrator can no longer approve it.
 Errors: `404` unknown id, `403` different location, `409` not pending or already
 passed by this administrator.
 
-### 17) `POST /admin/agents/{id}/assign-float`
+### 18) `DELETE /admin/rebalance-requests/{id}`
+
+Deletes a request so an administrator can clear one that can no longer be
+approved (for example a request that has been passed around and then found to be
+unaffordable). The wallet is freed for a new request. Only requests in the super
+agent's own location can be deleted.
+
+```json
+// 200
+{ "id": "056fab8b-...", "status": "DELETED", "message": "Rebalance request deleted." }
+```
+
+Errors: `404` unknown id, `403` different location.
+
+### 19) `POST /admin/agents/{id}/assign-float`
 
 Moves float **from the super agent's own wallet** into the agent's wallet (so the
 admin must have float of that type available). The agent side is recorded as a
@@ -602,8 +638,8 @@ The UI is three static pages, all loaded behind [auth.js](auth.js):
 | Page | Scripts | Endpoints used |
 |---|---|---|
 | `index.html` | `auth.js`, `login.js` | `POST /auth/register`, `POST /auth/login` |
-| `agent.html` | `auth.js`, `app.js` | `/agents/{id}/runway`, `/agents/{id}/rebalances`, `/deposit`, `/withdraw` |
-| `admin.html` | `auth.js`, `admin.js` | `/admin/profile`, `/admin/agents`, `/admin/rebalance-requests`, `…/approve`, `…/pass`, `/admin/agents/{id}/assign-float` |
+| `agent.html` | `auth.js`, `app.js` | `/agents/{id}/runway`, `/agents/{id}/rebalances` (GET/POST/DELETE), `/deposit`, `/withdraw` |
+| `admin.html` | `auth.js`, `admin.js` | `/admin/profile`, `/admin/agents`, `/admin/rebalance-requests`, `…/approve`, `…/pass`, `DELETE …/{id}`, `/admin/agents/{id}/assign-float` |
 
 - **`auth.js`** exposes an `Auth` object: it stores the token + user in
   `localStorage` (`floatguard_token_v1`, `floatguard_user_v1`), provides an
@@ -613,12 +649,13 @@ The UI is three static pages, all loaded behind [auth.js](auth.js):
   When served from a local Live Server (`localhost:5500`/`5501`) it targets the
   backend on port `7000` automatically.
 - **`app.js`** (agent) loads the signed-in agent's wallets from the runway
-  endpoint, records deposits/withdrawals, and submits rebalance requests. There is
-  **no server-side operation-history endpoint**, so the transaction list is kept in
-  the browser (`localStorage`, keyed per agent) and can be exported to CSV.
+  endpoint, records deposits/withdrawals, submits rebalance requests, and can
+  **cancel** a pending one. There is **no server-side operation-history
+  endpoint**, so the transaction list is kept in the browser (`localStorage`,
+  keyed per agent) and can be exported to CSV.
 - **`admin.js`** shows the super agent's profile, lists the agents in its location
   with per-wallet balances and warnings, supports search, provides the "Assign
-  float" modal, and lets it approve or pass rebalance requests.
+  float" modal, and lets it approve, pass or **delete** rebalance requests.
 
 Running the frontend separately: start the backend (`java -jar
 target/floatguard.jar`), then serve the root folder with Live Server on
@@ -746,6 +783,14 @@ curl -s -X POST localhost:7000/agents/<AGENT_ID>/rebalances \
 # 7. As the admin: list, then approve (or pass) the request
 curl -s localhost:7000/admin/rebalance-requests -H "Authorization: Bearer $TOKEN"
 curl -s -X PUT localhost:7000/admin/rebalance-requests/<REQUEST_ID>/approve \
+  -H "Authorization: Bearer $TOKEN"
+
+# 8. Or cancel it as the agent, freeing the wallet for a new request
+curl -s -X DELETE localhost:7000/agents/<AGENT_ID>/rebalances/<REQUEST_ID> \
+  -H "Authorization: Bearer <AGENT_TOKEN>"
+
+# 9. Or delete it as the admin (clears a stuck request)
+curl -s -X DELETE localhost:7000/admin/rebalance-requests/<REQUEST_ID> \
   -H "Authorization: Bearer $TOKEN"
 ```
 
