@@ -821,3 +821,6 @@ curl -s -X DELETE localhost:7000/admin/rebalance-requests/<REQUEST_ID> \
 - Rebuilding is required after editing Java **or** frontend files (the pages are
   packaged into the jar). Stop the running server first, then
   `./mvnw clean package`.
+## YouTube Demo Video
+
+[Watch FloatGuard Demo](https://youtu.be/zMyx_tDO9XU)
