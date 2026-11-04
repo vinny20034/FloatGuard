@@ -270,6 +270,11 @@ browser  ->  api/  ->  service/  ->  model/integration/  (+ persistence/dao/)
    outflow; `runwayDays` is `null` when there is no net outflow. Thresholds
    `CRITICAL_DAYS = 1.0` and `WARNING_DAYS = 3.0` are placeholders.
 5. **Rebalance state transition** — `RebalanceRequest.complete()` (idempotent).
+6. **Location scoping** — a rebalance request is visible and actionable only by a
+   super agent whose location matches the requesting agent's
+   (`FloatGuardService.requireSameLocation` + the `JOIN … WHERE location = ?`
+   in `RebalanceDao`). Agents must register into an existing super agent's
+   location (`AuthService.register`).
 
 ## Authentication & authorisation
 
@@ -380,6 +385,14 @@ Every error uses the same envelope:
 
 - Both roles must supply `agentName`, `location`, `nrcNumber`, `phoneNumber`,
   `openingCash` and `openingEFloat`; only `inviteCode` is ADMIN-specific.
+- **Location scoping on sign-up:** an AGENT can only register into a location that
+  already has a super agent. The match is case- and space-insensitive
+  (`"kitwe"` matches `"Kitwe"`), but the location must exist. Unknown location →
+  `400 VALIDATION_ERROR` with `details.location`, e.g.
+  `"No super agent is registered at 'Ndola'. Ask your super agent for the exact location name."`
+  This is what stops a "Ndola" agent from signing up under "Kitwe" and showing up
+  in that town's super-agent list. (Administrators are exempt — they create their
+  own location.)
 - `POST /auth/login` takes `{ "username", "password" }` and returns the same body.
 - Bad credentials → `401` with a deliberately generic message (no username
   enumeration). Invalid admin invite code → `403`. Duplicate username → `409`.
