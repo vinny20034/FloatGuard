@@ -276,6 +276,47 @@ browser  ->  api/  ->  service/  ->  model/integration/  (+ persistence/dao/)
    in `RebalanceDao`). Agents must register into an existing super agent's
    location (`AuthService.register`).
 
+## Class reference
+
+The [project structure](#project-structure) shows what exists; this says what each
+class is *for*. Members of `model/integration/` are in
+[Connecting to the domain team's code](#connecting-to-the-domain-teams-code); the
+platform classes are in [Platform classes](#platform-classes).
+
+**Entry point & config**
+
+| Class | Responsibility |
+|---|---|
+| `Main` | Boots everything: config → schema → services → routes → listen, plus a shutdown hook. |
+| `AppConfig` | Env config (`PORT`, `FLOATGUARD_DB_URL`, `FLOATGUARD_ADMIN_INVITE_CODE`); `static fromEnvironment()`. |
+
+**`api/` — REST layer (validate, delegate, serialise; holds no business rules)**
+
+| Class | Responsibility |
+|---|---|
+| `ApiRoutes` | Wires error mapping, the auth guard, every route group, and the 404 envelope. |
+| `AuthMiddleware` | Global `before` guard: resolves the bearer token, enforces the `/admin/**` and `/agents/{id}` rules; `currentUser(ctx)`. |
+| `ErrorMapper` | Maps each exception type to an HTTP status + error code. |
+| `Responses` | `send(ctx,status,body)` / `error(...)`; `ERROR_WRITTEN_ATTR` protects the 404 body. |
+| `Validation` | `requireNonBlank`, `requirePositiveAmount`, `requireNonNegativeAmount`, `failIfAny`. |
+
+**`api/routes/` — one handler per resource group**
+
+| Class | Endpoints | Calls into the service |
+|---|---|---|
+| `AuthRoutes` | `/auth/register`, `/auth/login`, `/auth/logout`, `/auth/me` | `register`, `login`, `logout` |
+| `AgentRoutes` | `POST /agents`; `GET`/`POST`/`DELETE /agents/{id}/rebalances`; `GET /agents/{id}/runway` | `registerAgent`, `getRebalanceOverview`, `requestRebalance`, `cancelOwnRebalance`, `getRunway` |
+| `WalletRoutes` | `POST /agents/{id}/wallets` | `createWallet` |
+| `OperationRoutes` | `POST /deposit`, `POST /withdraw` | `logCustomerTransaction`, `findWalletOwner` |
+| `AdminRoutes` | `/admin/profile`, `/admin/agents`, `/admin/agents/{id}/assign-float`, `GET /admin/rebalance-requests` | `getSuperAgentProfile`, `listAgentRunways`, `assignFloat`, `listRebalanceRequests` |
+| `RebalanceRoutes` | `PUT /admin/rebalance-requests/{id}/approve`, `…/{id}/pass`, `DELETE …/{id}` | `approveRebalance`, `passRebalance`, `cancelRebalance` |
+
+**`api/dto/` — Jackson wire shapes (20 records, no logic)**
+
+| Requests (read from JSON) | Responses (written to JSON) |
+|---|---|
+| `RegisterRequest`, `LoginRequest`, `CreateAgentRequest`, `CreateWalletRequest`, `OperationRequest`, `CreateRebalanceRequest`, `AssignFloatRequest` | `AuthResponse`, `AgentResponse`, `WalletResponse`, `RunwayResponse`, `WalletRunwayResponse`, `OperationResponse` (+ `PairedOperationResponse`), `RebalanceOverviewResponse`, `RebalanceWalletResponse`, `RebalanceItemResponse`, `RebalanceResponse`, `AdminProfileResponse`, `AdminAgentResponse`, `AdminRebalanceRequestResponse`, `AssignFloatResponse`, `ErrorResponse` |
+
 ## Authentication & authorisation
 
 Account handling is kept out of `FloatGuardService` in a dedicated
@@ -704,6 +745,34 @@ SQLite, plain JDBC. The schema is created on startup
   wrapped.
 - `UNIQUE` / `CHECK` constraints are safety nets; the primary enforcement lives in
   the domain/service layer.
+
+## Platform classes
+
+**`service/` — the only layer that touches both the domain and the database; transaction boundaries live here**
+
+| Class | Responsibility | Key methods |
+|---|---|---|
+| `FloatGuardService` | Orchestrates all float/agent/rebalance use-cases. | `registerAgent`, `createWallet`, `logOperation`, `logCustomerTransaction`, `getRunway`, `getSuperAgentProfile`, `listAgentRunways`, `assignFloat`, `findWalletOwner`, `approveRebalance`, `listRebalanceRequests`, `passRebalance`, `cancelRebalance`, `cancelOwnRebalance`, `getRebalanceOverview`, `requestRebalance` |
+| `AuthService` | Registration, login, opaque bearer-token sessions, and the location-access check. | `register`, `login`, `logout`, `resolveToken`, `canSuperAgentAccessAgent`, `startSession` |
+| `ServiceResults` | Nested records used as service return types (no behaviour): `Authenticated`, `AgentCreation`, `WalletCreation`, `OperationLogEntry`, `PairedOperationLogEntry`, `AgentRunway`, `RebalanceWallet`, `RebalanceView`, `RebalanceOverview`, `AdminRebalanceView`, `RebalanceApproval`. |
+
+**`persistence/` — plain JDBC. Every method takes an existing `Connection` so it joins the caller's transaction**
+
+| Class | Table | Key methods |
+|---|---|---|
+| `Database` | — | `open()`, `read(...)`, `inTransaction(...)`; sets `PRAGMA foreign_keys` and `busy_timeout`. |
+| `SchemaInitializer` | all | `initialize()` — idempotent DDL + indexes + additive `ALTER TABLE` migrations. |
+| `DataAccessException` | — | Unchecked wrapper for `SQLException` (mapped to 500). |
+| `AgentDao` | `agents` | `insert`, `findById`, `existsById`, `findAll`, `findAgentsInLocation`, `existsSuperAgentInLocation`. |
+| `WalletDao` | `wallets` | `insert`, `updateBalance`, `findById`, `findByAgentId`, `existsByAgentAndType`. |
+| `OperationDao` | `operations` | `insert`, `findByWalletId` (rehydrates the ledger). |
+| `RebalanceDao` | `rebalance_requests`, `rebalance_request_passes` | `insert`, `update`, `delete`, `findById`, `listByAgentId`, `listAll`, `listAvailableForSuperAgent`, `hasPassed`, `recordPass`, `countPasses`, `findPendingByWalletId`. |
+| `UserDao` | `users` | `insert`, `findById`, `findByUsername`, `existsByUsername`. |
+| `SessionDao` | `sessions` | `insert`, `findUserIdByToken`, `deleteByToken`. |
+
+**`model/auth/`** — `Role` (enum `ADMIN`/`AGENT`, `fromString`), `User` (account + bcrypt hash + `agentId`).
+**`error/`** — `AppException` (base) → `ValidationException` (400), `UnauthorizedException` (401), `ForbiddenException` (403), `NotFoundException` (404), `ConflictException` (409); `model/integration/InsufficientFloatException` also maps to 409. Each carries an optional `details` map for field-level errors.
+**`util/Json`** — `read(body, Class)` / `write(value)` around Jackson.
 
 ## Connecting to the domain team's code
 
