@@ -444,13 +444,42 @@ function renderRebalanceRequests() {
         <p>Area declared: ${escapeHTML(request.area || "—")}</p>
       </div>
 
-      <span class="status ${request.status === "PENDING" ? "pending" : "available"}">
+      <div class="rebalance-actions">
+        <span class="status ${request.status === "PENDING" ? "pending" : "available"}">
+          ${request.status === "PENDING"
+            ? (request.handoffCount > 0 ? "Passed — waiting for another local super agent" : "Pending super-agent approval")
+            : "Approved"}
+        </span>
         ${request.status === "PENDING"
-          ? (request.handoffCount > 0 ? "Passed — waiting for another local super agent" : "Pending super-agent approval")
-          : "Approved"}
-      </span>
+          ? `<button type="button" class="outline-button compact danger" data-cancel="${escapeHTML(request.id)}">Cancel request</button>`
+          : ""}
+      </div>
     </div>
   `).join("");
+}
+
+async function cancelRebalance(id) {
+  const request = rebalanceLog.find(item => item.id === id);
+  if (!request) return;
+
+  const confirmed = window.confirm(
+    `Cancel this ${walletLabel(request.walletType)} request for ${money(request.amount)}?\n\n` +
+    "It will be removed so you can submit a new one."
+  );
+  if (!confirmed) return;
+
+  const res = await api(
+    "DELETE",
+    `/agents/${encodeURIComponent(session.agentId)}/rebalances/${encodeURIComponent(id)}`
+  );
+  if (!res.ok) {
+    showMessage(res.message, "error");
+    return;
+  }
+
+  if (await refreshState()) {
+    showMessage("Rebalance request cancelled. You can submit a new one.");
+  }
 }
 
 async function submitRebalanceRequest(event) {
@@ -465,6 +494,18 @@ async function submitRebalanceRequest(event) {
   }
 
   const walletType = $("rebalanceFloatType").value;
+
+  // A top-up is paid for with the opposite float, so require the agent to hold
+  // enough of it up front instead of letting the request stall at approval.
+  const paymentType = walletType === "EFLOAT" ? "CASH" : "EFLOAT";
+  const paymentWallet = session?.wallets?.[paymentType];
+  if (!paymentWallet || Number(paymentWallet.balance) < amount) {
+    showMessage(
+      `Your ${walletLabel(paymentType)} balance is too low to pay for this ` +
+      `${walletLabel(walletType)} top-up.`, "error");
+    return;
+  }
+
   const res = await api(
     "POST",
     `/agents/${encodeURIComponent(session.agentId)}/rebalances`,
@@ -565,6 +606,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("withdrawalForm")?.addEventListener("submit", handleWithdrawal);
   $("rebalanceForm")?.addEventListener("submit", submitRebalanceRequest);
   $("rebalanceRefreshBtn")?.addEventListener("click", () => refreshState());
+
+  $("rebalanceRequests")?.addEventListener("click", event => {
+    const button = event.target.closest("[data-cancel]");
+    if (button) cancelRebalance(button.dataset.cancel);
+  });
 
   $("historySearch")?.addEventListener("input", searchTransactions);
   $("exportBtn")?.addEventListener("click", exportTransactions);

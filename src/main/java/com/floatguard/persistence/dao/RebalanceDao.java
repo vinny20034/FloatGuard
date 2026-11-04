@@ -45,6 +45,20 @@ public class RebalanceDao {
         }
     }
 
+    /** Removes a request and any handoff records recorded against it. */
+    public void delete(Connection connection, String rebalanceId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM rebalance_request_passes WHERE request_id = ?")) {
+            statement.setString(1, rebalanceId);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM rebalance_requests WHERE id = ?")) {
+            statement.setString(1, rebalanceId);
+            statement.executeUpdate();
+        }
+    }
+
     public Optional<RebalanceRequest> findById(Connection connection, String rebalanceId) throws SQLException {
         String sql = "SELECT id, wallet_id, requested_amount, area, status, created_at, completed_at "
                 + "FROM rebalance_requests WHERE id = ?";

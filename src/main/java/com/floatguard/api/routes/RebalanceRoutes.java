@@ -43,5 +43,14 @@ public final class RebalanceRoutes {
                     "status", "PENDING",
                     "message", "Passed to another super agent in your location."));
         });
+
+        app.delete("/admin/rebalance-requests/{id}", ctx -> {
+            var user = AuthMiddleware.currentUser(ctx);
+            service.cancelRebalance(ctx.pathParam("id"), user.getAgentId());
+            Responses.send(ctx, 200, java.util.Map.of(
+                    "id", ctx.pathParam("id"),
+                    "status", "DELETED",
+                    "message", "Rebalance request deleted."));
+        });
     }
 }
