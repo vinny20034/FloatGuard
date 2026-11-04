@@ -99,4 +99,16 @@ public class AgentDao {
             }
         }
     }
+
+    /** True when at least one super agent is registered at this location. */
+    public boolean existsSuperAgentInLocation(Connection connection, String location) throws SQLException {
+        String sql = "SELECT 1 FROM agents WHERE kind = ? AND LOWER(TRIM(location)) = LOWER(TRIM(?)) LIMIT 1";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, Agent.SUPER_AGENT);
+            statement.setString(2, location);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                return resultSet.next();
+            }
+        }
+    }
 }

@@ -3,6 +3,7 @@ package com.floatguard.service;
 import com.floatguard.error.ConflictException;
 import com.floatguard.error.ForbiddenException;
 import com.floatguard.error.UnauthorizedException;
+import com.floatguard.error.ValidationException;
 import com.floatguard.model.auth.Role;
 import com.floatguard.model.auth.User;
 import com.floatguard.model.integration.Agent;
@@ -19,6 +20,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -87,9 +89,21 @@ public class AuthService {
                 throw new ConflictException("Username '" + normalisedUsername + "' is already taken.");
             }
 
+            // An agent must join a location that already has a super agent, so a
+            // request can never be raised into a location nobody serves. Location
+            // is free text, so this also stops "Ndola" agents registering as
+            // "Kitwe" and becoming visible to that town's super agent.
+            String normalisedLocation = location.trim();
+            if (role == Role.AGENT && !agentDao.existsSuperAgentInLocation(connection, normalisedLocation)) {
+                throw new ValidationException(
+                        "No super agent is registered at '" + normalisedLocation
+                                + "'. Ask your super agent for the exact location name.",
+                        Map.of("location", "No super agent is registered at this location."));
+            }
+
             String agentId = UUID.randomUUID().toString();
             String kind = role == Role.ADMIN ? Agent.SUPER_AGENT : Agent.AGENT;
-            Agent profile = new Agent(agentId, agentName.trim(), location.trim(), nrcNumber.trim(),
+            Agent profile = new Agent(agentId, agentName.trim(), normalisedLocation, nrcNumber.trim(),
                     phoneNumber.trim(), kind);
             agentDao.insert(connection, profile, createdAt);
             walletDao.insert(connection,
