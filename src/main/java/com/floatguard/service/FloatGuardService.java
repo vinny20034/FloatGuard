@@ -1,11 +1,13 @@
 package com.floatguard.service;
 
 import com.floatguard.error.ConflictException;
+import com.floatguard.error.ForbiddenException;
 import com.floatguard.error.NotFoundException;
 import com.floatguard.model.integration.Agent;
 import com.floatguard.model.integration.CustomerDeposit;
 import com.floatguard.model.integration.CustomerWithdrawal;
 import com.floatguard.model.integration.FloatWallet;
+import com.floatguard.model.integration.InsufficientFloatException;
 import com.floatguard.model.integration.Operation;
 import com.floatguard.model.integration.RebalanceRequest;
 import com.floatguard.model.integration.RebalanceStatus;
@@ -370,6 +372,48 @@ public class FloatGuardService {
     }
 
     /**
+     * Deletes a rebalance request in the super agent's location. Lets an
+     * administrator clear a request that can no longer be approved (for example
+     * one that has been passed around), freeing the wallet for a new request.
+     */
+    public void cancelRebalance(String rebalanceId, String superAgentId) {
+        database.inTransaction(connection -> {
+            RebalanceRequest request = rebalanceDao.findById(connection, rebalanceId)
+                    .orElseThrow(() -> new NotFoundException("Unknown rebalance request '" + rebalanceId + "'."));
+            Agent superAgent = requireSuperAgent(connection, superAgentId);
+            FloatWallet wallet = walletDao.findById(connection, request.getWalletId())
+                    .orElseThrow(() -> new NotFoundException("Unknown wallet '" + request.getWalletId() + "'."));
+            Agent requestingAgent = agentDao.findById(connection, wallet.getAgentId())
+                    .orElseThrow(() -> new NotFoundException("Unknown requesting agent."));
+            requireSameLocation(superAgent, requestingAgent);
+            rebalanceDao.delete(connection, rebalanceId);
+            return null;
+        });
+    }
+
+    /**
+     * Cancels one of the agent's own pending requests so the wallet is freed for
+     * a new one. Only a wallet the agent owns can be cancelled, and only while
+     * the request is still pending.
+     */
+    public void cancelOwnRebalance(String agentId, String rebalanceId) {
+        database.inTransaction(connection -> {
+            RebalanceRequest request = rebalanceDao.findById(connection, rebalanceId)
+                    .orElseThrow(() -> new NotFoundException("Unknown rebalance request '" + rebalanceId + "'."));
+            FloatWallet wallet = walletDao.findById(connection, request.getWalletId())
+                    .orElseThrow(() -> new NotFoundException("Unknown wallet '" + request.getWalletId() + "'."));
+            if (!wallet.getAgentId().equals(agentId)) {
+                throw new ForbiddenException("That rebalance request does not belong to this agent.");
+            }
+            if (request.getStatus() != RebalanceStatus.PENDING) {
+                throw new ConflictException("Only a pending request can be cancelled.");
+            }
+            rebalanceDao.delete(connection, rebalanceId);
+            return null;
+        });
+    }
+
+    /**
      * GET /agents/{id}/rebalances - the agent's floats measured against the
      * threshold, plus every request submitted for its wallets.
      */
@@ -414,6 +458,17 @@ public class FloatGuardService {
             if (rebalanceDao.findPendingByWalletId(connection, wallet.getId()).isPresent()) {
                 throw new ConflictException("This wallet already has a pending rebalance request.");
             }
+
+            // A top-up is paid for with the opposite float, so the agent must
+            // already hold enough of it. Rejecting here stops requests that could
+            // never be approved and would otherwise leave the agent locked out.
+            WalletType paymentType = wallet.getType().opposite();
+            FloatWallet paymentWallet = findWallet(connection, agentId, paymentType, "Agent");
+            if (paymentWallet.getBalance() < amount) {
+                throw new InsufficientFloatException("Your " + paymentType
+                        + " balance is too low to pay for this " + type + " top-up.");
+            }
+
             RebalanceRequest pending = wallet.createRebalanceRequest(amount, area);
             rebalanceDao.insert(connection, pending);
             return toView(connection, pending, type);

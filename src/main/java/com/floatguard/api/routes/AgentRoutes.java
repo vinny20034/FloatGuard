@@ -111,6 +111,14 @@ public final class AgentRoutes {
                     service.requestRebalance(ctx.pathParam("id"), type, request.amount(), request.area().trim());
             Responses.send(ctx, 201, toItem(view));
         });
+
+        app.delete("/agents/{id}/rebalances/{requestId}", ctx -> {
+            service.cancelOwnRebalance(ctx.pathParam("id"), ctx.pathParam("requestId"));
+            Responses.send(ctx, 200, Map.of(
+                    "id", ctx.pathParam("requestId"),
+                    "status", "DELETED",
+                    "message", "Rebalance request cancelled."));
+        });
     }
 
     private static RebalanceItemResponse toItem(ServiceResults.RebalanceView view) {

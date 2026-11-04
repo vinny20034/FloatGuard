@@ -146,8 +146,11 @@ function renderRebalanceRequests() {
       <td data-action>
         ${pending
           ? `<span class="status pending">${request.handoffCount ? "Waiting for another super agent" : "Pending"}</span>
-             <button type="button" class="assign-button" data-approve="${escapeHTML(request.id)}">Approve</button>
-             <button type="button" class="outline-button compact" data-pass="${escapeHTML(request.id)}">Pass</button>`
+             <div class="button-group">
+               <button type="button" class="assign-button" data-approve="${escapeHTML(request.id)}">Approve</button>
+               <button type="button" class="outline-button compact" data-pass="${escapeHTML(request.id)}">Pass</button>
+               <button type="button" class="outline-button compact danger" data-delete="${escapeHTML(request.id)}">Delete</button>
+             </div>`
           : `<span class="status available">Approved</span>`}
       </td>
     </tr>`;
@@ -214,6 +217,30 @@ async function passRebalance(id) {
   }
   await refreshDashboard();
   showMessage("Request passed to another super agent in your location.");
+}
+
+async function deleteRebalance(id) {
+  const request = rebalanceRequests.find(item => item.id === id);
+  if (!request) return;
+
+  const confirmed = window.confirm(
+    `Delete this ${request.walletType === "EFLOAT" ? "e-float" : "cash float"} ` +
+    `request from ${request.agentName}?\n\n` +
+    "The pending request is removed, so the agent can submit a new one."
+  );
+  if (!confirmed) return;
+
+  const res = await Auth.api(
+    "DELETE",
+    `/admin/rebalance-requests/${encodeURIComponent(id)}`
+  );
+  if (!res.ok) {
+    showMessage(res.message, "error");
+    return;
+  }
+
+  await refreshDashboard();
+  showMessage("Rebalance request deleted.");
 }
 
 function renderStats() {
@@ -350,6 +377,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (approveButton) approveRebalance(approveButton.dataset.approve);
     const passButton = event.target.closest("[data-pass]");
     if (passButton) passRebalance(passButton.dataset.pass);
+    const deleteButton = event.target.closest("[data-delete]");
+    if (deleteButton) deleteRebalance(deleteButton.dataset.delete);
   });
 
   $("agentRows")?.addEventListener("click", event => {

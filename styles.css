@@ -55,6 +55,9 @@ h1{font:800 23px Manrope;margin:0;letter-spacing:-.7px}
 .primary-button,.secondary-button,.outline-button{height:41px;border-radius:8px;padding:0 14px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:15px;transition:.2s}
 .primary-button{border:1px solid #7a1732;background:var(--brand-grad);color:#fff}.primary-button:hover{background:linear-gradient(135deg,#92294a,#5a0f28)}
 .secondary-button{border:1px solid #eddde3;background:#fdf6f8;color:#8c1c3a}.secondary-button:hover{background:#f7e8ee}
+.outline-button.compact.danger{color:#c0392b;border-color:#f0d3ce}.outline-button.compact.danger:hover{background:#fff0ed;border-color:#d65b62;color:#a52f22}
+.button-group{display:inline-flex;gap:6px;justify-content:flex-end;align-items:center;flex-wrap:wrap;margin-left:8px}
+.rebalance-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0}
 .text-button{border:0;background:transparent;color:#8c1c3a;font-size:10px;font-weight:700;padding:7px}.text-button:hover{text-decoration:underline}
 .table-panel{overflow:hidden}.table-wrap{width:100%;overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:620px}th{text-align:left;padding:13px 16px;background:#fdf8f9;color:#8a7a80;font-size:8px;letter-spacing:1px;font-weight:800;white-space:nowrap}td{padding:14px 16px;border-top:1px solid #f2e9ec;font-size:10px;color:#6b4f57;white-space:nowrap}td:first-child{font-weight:700;color:#4a2b33}.empty-cell{text-align:center;color:#a08a90;padding:25px!important}
 .muted{display:block;font-size:9px;color:var(--muted);font-weight:400;margin-top:3px;white-space:normal}
