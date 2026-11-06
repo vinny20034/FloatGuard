@@ -20,7 +20,7 @@ OOP Group Project — Zambia University College of Technology.
 | No. | Full name | Student number |
 |---|---|---|
 | 1 | Vidson Mwangosy | 2420932 |
-| 2 | Mathews Mulemba | 2420914 |
+| 2 | Mathews Mulemba | 2420913 |
 | 3 | Nyangoloma Peter | 2420929 |
 | 4 | Robert Muntanga | 2420908 |
 | 5 | Wongani Miyanza | 2420907 |
